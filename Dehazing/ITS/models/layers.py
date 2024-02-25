@@ -35,10 +35,12 @@ class ResBlock(nn.Module):
             BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
             BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
         )
-
+        # self.scale = nn.Parameter(torch.ones(in_channel,1,1))
+        # nn.init.normal_(self.scale, mean=1, std=.02)
+        # self.conv1 = BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True)
+        # self.conv2 = BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True)
     def forward(self, x):
         return self.main(x) + x
-    
 class ResBlock1(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(ResBlock1, self).__init__()
@@ -56,29 +58,40 @@ class ResBlock1(nn.Module):
         x2 = self.main1(x2) + x2
         return x1, x2
 
+
 class UNet(nn.Module):
     def __init__(self, inchannel, outchannel, num_res) -> None:
         super().__init__()
 
-        self.layers = nn.ModuleList()
-        for i in range(num_res):
-            self.layers.append(ResBlock1(inchannel//2, outchannel//2))
+
+
+            # if  i < (num_res - num_res // 4):
+        self.layers = ResBlock1(inchannel//2, outchannel//2)
+            # else:
+                # self.layers.append(ResBlock(inchannel, outchannel))
         self.num_res = num_res
         self.down = nn.Conv2d(inchannel//2, outchannel//2, kernel_size=2, stride=2, groups=inchannel//2)
 
     def forward(self, x):
-        for i, layer in enumerate(self.layers):
-            if i == 0:
-                x1, x2 = torch.chunk(x, 2, dim=1)
-                x2 = self.down(x2)
-                x1, x2 = layer(x1, x2)
 
-            elif i == self.num_res - 1:
-                x1, x2 = layer(x1, x2)
-                x2 = F.interpolate(x2, size=x1.shape[2:], mode='bilinear')
-                x = torch.cat((x1,x2), dim=1)
+
+        x1, x2 = torch.chunk(x, 2, dim=1)
+        x2 = self.down(x2)
+        # x1 = layer(x1)
+        # x2 = layer(x2)
+        x1, x2 = self.layers(x1, x2)
+        x2 = F.interpolate(x2, size=x1.shape[2:], mode='bilinear')
+        x = torch.cat((x1, x2), dim=1)
+            # elif 0 < i < (self.num_res - self.num_res // 4):
+                # x1 = layer(x1)
+                # x2 = layer(x2)
+                # x1, x2 = layer(x1, x2)
+            # elif i == self.num_res - 1:
+            #     # i == self.num_res - 1:
+            #     x1, x2 = layer(x1, x2)
+            #     x2 = F.interpolate(x2, size=x1.shape[2:], mode='bilinear')
+            #     x = torch.cat((x1,x2), dim=1)
                 
-            else:
-                x1, x2 = layer(x1, x2)
-                
+            # else:
+            #     x1, x2 = layer(x1, x2)
         return x

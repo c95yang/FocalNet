@@ -2,12 +2,16 @@ import os
 import torch
 import argparse
 from torch.backends import cudnn
-from models.FocalNet import build_net
+from models.MIMOUNet import build_net
 from train import _train
 from eval import _eval
 import numpy as np
 import random
-
+from ptflops import get_model_complexity_info
+random.seed(1234)
+np.random.seed(1234)
+torch.manual_seed(1234)
+torch.cuda.manual_seed_all(1234)
 def main(args):
     # CUDNN
     cudnn.benchmark = True
@@ -21,9 +25,15 @@ def main(args):
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
-    model = build_net()
+    model = build_net(args.model_name)
     print(model)
-
+#    macs, _ = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
+#    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+#    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.
+#    para_num = sum(p.numel() for p in model.parameters()) / 1000000.
+#    print('total parameters is %.2fM' % (para_num))
+    # original = 6.81M
+    # filter with num of resblocks unchanged = 7.10
     if torch.cuda.is_available():
         model.cuda()
     if args.mode == 'train':
@@ -37,35 +47,37 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Directories
-    parser.add_argument('--model_name', default='FocalNet', type=str)
-
-    parser.add_argument('--mode', default='test', choices=['train', 'test'], type=str)
-    parser.add_argument('--data_dir', type=str, default='')
-
+    parser.add_argument('--model_name', default='MIMO-UNet', choices=['MIMO-UNet', 'MIMO-UNetPlus'], type=str)
+    # parser.add_argument('--data_dir', type=str, default='/home1/cyn/mimo/dataset/RealBlur/Realblur-R')
+   # parser.add_argument('--data_dir', type=str, default='dataset/GOPRO')
+#    parser.add_argument('--data_dir', type=str, default='/share/home/liujie/taoyi/dataset/RSBlur')
+    parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
+    parser.add_argument('--data_dir', type=str, default='/share/home/liujie/taoyi/dataset/dehazing')
     # Train
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--learning_rate', type=float, default=8e-4)
+    parser.add_argument('--batch_size', type=int, default=4)#4
+    parser.add_argument('--learning_rate', type=float, default=1e-4)#1e4
     parser.add_argument('--weight_decay', type=float, default=0)
-    parser.add_argument('--num_epoch', type=int, default=1000)
+    parser.add_argument('--num_epoch', type=int, default=300)#300
     parser.add_argument('--print_freq', type=int, default=100)
-    parser.add_argument('--num_worker', type=int, default=16)
-    parser.add_argument('--save_freq', type=int, default=20)
-    parser.add_argument('--valid_freq', type=int, default=20)
+    parser.add_argument('--num_worker', type=int, default=8)
+    parser.add_argument('--save_freq', type=int, default=10)
+    parser.add_argument('--valid_freq', type=int, default=10)
     parser.add_argument('--resume', type=str, default='')
-
+    parser.add_argument('--gamma', type=float, default=0.5)
+    # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='')
+    parser.add_argument('--test_model', type=str, default='/home1/cyn/mimo/results/MIMO-UNet/fscale_nores_01_allblock_afterconv1/model_3000.pkl')
     parser.add_argument('--save_image', type=bool, default=False, choices=[True, False])
 
     args = parser.parse_args()
-    args.model_save_dir = os.path.join('results/', 'FocalNet', 'ITS/')
+    args.model_save_dir = os.path.join('results/', 'mean', 'full')
     args.result_dir = os.path.join('results/', args.model_name, 'test')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
     command = 'cp ' + 'models/layers.py ' + args.model_save_dir
     os.system(command)
-    command = 'cp ' + 'models/FocalNet.py ' + args.model_save_dir
+    command = 'cp ' + 'models/MIMOUNet.py ' + args.model_save_dir
     os.system(command)
     command = 'cp ' + 'train.py ' + args.model_save_dir
     os.system(command)
