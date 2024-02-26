@@ -173,7 +173,7 @@ class FAM(nn.Module):
         return self.merge(torch.cat([x1, x2], dim=1))
 
 class MIMOUNet(nn.Module):
-    def __init__(self, num_res=1):
+    def __init__(self, num_res=1): #num_res=4 in focalnet
         super(MIMOUNet, self).__init__()
 
         base_channel = 32
@@ -222,19 +222,21 @@ class MIMOUNet(nn.Module):
             pyramid_attention.append(ParamidAttention(base_channel * 4))
         self.pyramid_attentions = nn.Sequential(*pyramid_attention)
     def forward(self, x):
-        x_2 = F.interpolate(x, scale_factor=0.5)
-        x_4 = F.interpolate(x_2, scale_factor=0.5)
-        z2 = self.SCM2(x_2)
-        z4 = self.SCM1(x_4)
+        #x: torch.Size([4, 3, 256, 256])
+        x_2 = F.interpolate(x, scale_factor=0.5) #torch.Size([4, 3, 128, 128])
+        x_4 = F.interpolate(x_2, scale_factor=0.5) #torch.Size([4, 3, 64, 64])
+        z2 = self.SCM2(x_2) #torch.Size([4, 64, 128, 128])
+        z4 = self.SCM1(x_4) #torch.Size([4, 128, 64, 64])
 
         outputs = list()
         # 256
-        x_ = self.feat_extract[0](x)
-        res1 = self.Encoder[0](x_)
+        x_ = self.feat_extract[0](x) #torch.Size([4, 32, 256, 256])
+        res1 = self.Encoder[0](x_) #torch.Size([4, 32, 256, 256]) #TODO: further reading!!
+
         # 128
-        z = self.feat_extract[1](res1)
-        z = self.FAM2(z, z2)
-        res2 = self.Encoder[1](z)
+        z = self.feat_extract[1](res1) #torch.Size([4, 64, 256, 256])
+        z = self.FAM2(z, z2)  #torch.Size([4, 64, 256, 256])
+        res2 = self.Encoder[1](z)  #torch.Size([4, 64, 256, 256])
         # 64
         z = self.feat_extract[2](res2)
         z = self.FAM1(z, z4)
@@ -260,9 +262,9 @@ class MIMOUNet(nn.Module):
         z = self.Convs[1](z)
         z = self.Decoder[2](z)
         z = self.feat_extract[5](z)
-        outputs.append(z+x)
+        outputs.append(z+x) 
 
-        return outputs
+        return outputs #3 outputs
 
 class MIMOUNetPlus(nn.Module):
     def __init__(self, num_res = 20):
