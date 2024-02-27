@@ -21,7 +21,7 @@ class BasicConv1(nn.Module):
 
 class ChannelPool(nn.Module):
     def forward(self, x):
-        return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1 )
+        return torch.cat( (torch.max(x,1)[0].unsqueeze(1), torch.mean(x,1).unsqueeze(1)), dim=1 ) #output(n, 2, n, n)
 class SpatialGate(nn.Module):
     def __init__(self, channel):
         super(SpatialGate, self).__init__()
@@ -39,7 +39,7 @@ class SpatialGate(nn.Module):
         out = self.compress(x)
         out = self.spatial(out)
         # scale = F.sigmoid(x_out) # broadcasting
-        out = self.dw1(x) * out + self.dw2(x)
+        out = self.dw1(x) * out + self.dw2(x) #element-wise multiplication
         return out
 
 
@@ -76,19 +76,20 @@ class LocalAttention(nn.Module):
 
 
 class ParamidAttention(nn.Module):
-    def __init__(self, channel) -> None:
+    def __init__(self, channel) -> None: #x:([4, 128, 64, 64]) #channel = 128
         super().__init__()
         pyramid = 1
         self.spatial_gate = SpatialGate(channel)
-        layers = [LocalAttention(channel, p=i) for i in range(pyramid-1,-1,-1)]
+        layers = [LocalAttention(channel, p=i) for i in range(pyramid-1,-1,-1)] #only one layer when p = 0?
         self.local_attention = nn.Sequential(*layers)
         self.a = nn.Parameter(torch.zeros(channel,1,1))
-        self.b = nn.Parameter(torch.ones(channel,1,1))
+        self.b = nn.Parameter(torch.ones(channel,1,1))#torch.Size([128, 1, 1])
     def forward(self, x):
-        out = self.spatial_gate(x)
-        # print(out)
+        out = self.spatial_gate(x) #torch.Size([4, 128, 64, 64])
         out = self.local_attention(out)
-        return self.a*out + self.b*x
+
+        print((self.a*out).shape)
+        return self.a*out + self.b*x #torch.Size([4, 128, 64, 64])
 
 
 class EBlock(nn.Module):
@@ -231,38 +232,38 @@ class MIMOUNet(nn.Module):
         outputs = list()
         # 256
         x_ = self.feat_extract[0](x) #torch.Size([4, 32, 256, 256])
-        res1 = self.Encoder[0](x_) #torch.Size([4, 32, 256, 256]) #TODO: further reading!!
+        res1 = self.Encoder[0](x_) #torch.Size([4, 32, 256, 256]) #UNet(32, 32, 8)
 
         # 128
-        z = self.feat_extract[1](res1) #torch.Size([4, 64, 256, 256])
-        z = self.FAM2(z, z2)  #torch.Size([4, 64, 256, 256])
-        res2 = self.Encoder[1](z)  #torch.Size([4, 64, 256, 256])
+        z = self.feat_extract[1](res1) #torch.Size([4, 64, 128, 128])
+        z = self.FAM2(z, z2)  #torch.Size([4, 64, 128, 128])
+        res2 = self.Encoder[1](z)  #torch.Size([4, 64, 128, 128])
+
         # 64
-        z = self.feat_extract[2](res2)
-        z = self.FAM1(z, z4)
-        z = self.Encoder[2](z)
-
-        z = self.pyramid_attentions(z)
-        
-        z = self.Decoder[0](z)
-        z_ = self.ConvsOut[0](z)
+        z = self.feat_extract[2](res2) #torch.Size([4, 128, 64, 64])
+        z = self.FAM1(z, z4) #torch.Size([4, 128, 64, 64])
+        z = self.Encoder[2](z) #torch.Size([4, 128, 64, 64]) #TODO: further reading!!
+        z = self.pyramid_attentions(z)  #torch.Size([4, 128, 64, 64])   #TODO: further reading!!
+        z = self.Decoder[0](z)  #torch.Size([4, 128, 64, 64])      #TODO: further reading!!
+        z_ = self.ConvsOut[0](z) #torch.Size([4, 3, 64, 64])
         # 128
-        z = self.feat_extract[3](z)
-        outputs.append(z_+x_4)
+        z = self.feat_extract[3](z) #torch.Size([4, 64, 128, 128])
+        outputs.append(z_+x_4) # print(outputs[0].shape) torch.Size([4, 3, 64, 64])
 
-        z = torch.cat([z, res2], dim=1)
-        z = self.Convs[0](z)
-        z = self.Decoder[1](z)
-        z_ = self.ConvsOut[1](z)
+        z = torch.cat([z, res2], dim=1) #torch.Size([4, 128, 128, 128])
+        z = self.Convs[0](z) #torch.Size([4, 64, 128, 128])
+        z = self.Decoder[1](z) #torch.Size([4, 64, 128, 128])
+        z_ = self.ConvsOut[1](z) #torch.Size([4, 3, 128, 128])
+
         # 256
-        z = self.feat_extract[4](z)
-        outputs.append(z_+x_2)
+        z = self.feat_extract[4](z) #torch.Size([4, 32, 256, 256])
+        outputs.append(z_+x_2) #torch.Size([4, 3, 128, 128])
 
-        z = torch.cat([z, res1], dim=1)
-        z = self.Convs[1](z)
-        z = self.Decoder[2](z)
-        z = self.feat_extract[5](z)
-        outputs.append(z+x) 
+        z = torch.cat([z, res1], dim=1) #torch.Size([4, 64, 256, 256])
+        z = self.Convs[1](z) #torch.Size([4, 32, 256, 256])
+        z = self.Decoder[2](z) #torch.Size([4, 32, 256, 256])
+        z = self.feat_extract[5](z) #torch.Size([4, 3, 256, 256])
+        outputs.append(z+x) #torch.Size([4, 3, 256, 256])
 
         return outputs #3 outputs
 

@@ -66,7 +66,7 @@ class UNet(nn.Module):
 
 
             # if  i < (num_res - num_res // 4):
-        self.layers = ResBlock1(inchannel//2, outchannel//2)
+        self.layers = ResBlock1(inchannel//2, outchannel//2) #ResBlock(16, 16)
             # else:
                 # self.layers.append(ResBlock(inchannel, outchannel))
         self.num_res = num_res
@@ -80,8 +80,8 @@ class UNet(nn.Module):
         # x1 = layer(x1)
         # x2 = layer(x2)
         x1, x2 = self.layers(x1, x2)
-        x2 = F.interpolate(x2, size=x1.shape[2:], mode='bilinear')
-        x = torch.cat((x1, x2), dim=1)
+        x2 = F.interpolate(x2, size=x1.shape[2:], mode='bilinear') #upsample
+        x = torch.cat((x1, x2), dim=1) #torch.Size([4, 32, 256, 256])
             # elif 0 < i < (self.num_res - self.num_res // 4):
                 # x1 = layer(x1)
                 # x2 = layer(x2)
@@ -95,3 +95,19 @@ class UNet(nn.Module):
             # else:
             #     x1, x2 = layer(x1, x2)
         return x
+
+
+    
+
+if __name__ == '__main__':
+    #model = UNet(32, 32, 8)
+    x = torch.randn(4, 128, 256, 256)
+    #y = model(x)
+    #print(model)
+    channel = 128
+    #model = BasicConv1(channel, channel, 5, stride=1, dilation=2, padding=4, groups=channel)
+    #model = BasicConv1(channel, channel, 7, stride=1, dilation=3, padding=9, groups=channel)
+    #BasicConv1(channel, channel, kernel_size, stride=1, padding=1, groups=channel)
+    #y = model(x)
+    for i in range(5,-1,-1) :
+        print(i)
