@@ -32,13 +32,11 @@ class SpatialGate(nn.Module):
             BasicConv1(channel, channel, 5, stride=1, dilation=2, padding=4, groups=channel),
             BasicConv1(channel, channel, 7, stride=1, dilation=3, padding=9, groups=channel)
         )
-        # self.dw1 = BasicConv1(channel, channel, kernel_size, stride=1, padding=1, groups=channel)
         self.dw2 = BasicConv1(channel, channel, kernel_size, stride=1, padding=1, groups=channel)
 
     def forward(self, x):
         out = self.compress(x)
-        out = self.spatial(out)
-        # scale = F.sigmoid(x_out) # broadcasting
+        out = self.spatial(out) # contains degradation locations to focus
         out = self.dw1(x) * out + self.dw2(x) #element-wise multiplication
         return out
 
@@ -47,33 +45,15 @@ class LocalAttention(nn.Module):
     def __init__(self, channel, p) -> None:
         super().__init__()
         self.channel = channel
-        # p = 1
         self.num_patch = 2 ** p
-        # self.IN = nn.InstanceNorm2d(num_features=channel*self.num_patch**2, affine=False, track_running_stats=False)
         self.sig = nn.Sigmoid()
 
-        self.a = nn.Parameter(torch.zeros(channel,1,1))
+        self.a = nn.Parameter(torch.zeros(channel,1,1)) 
         self.b = nn.Parameter(torch.ones(channel,1,1))
 
     def forward(self, x):
-        # print(x)
-        # b, c, h, w = x.shape
-        # out = rearrange(x, 'b c (ph h) (pw w) -> b c ph h pw w', ph=self.num_patch, pw=self.num_patch)
-        # out = rearrange(out, 'b c ph h pw w -> b (c ph pw) h w', ph=self.num_patch, pw=self.num_patch)
-
-        # out = self.sig(self.IN(out))
-        out = x - torch.mean(x, dim=(2,3), keepdim=True)
-
-        # out = rearrange(out, 'b (c ph pw) h w -> b c (ph h) (pw w)', ph=self.num_patch, pw=self.num_patch)
-        # print(out)
+        out = x - torch.mean(x, dim=(2,3), keepdim=True) # high frequency information
         return self.a*out*x + self.b*x
-
-# if __name__ == '__main__':
-#     torch.manual_seed(42)
-#     mymodel = LocalAttention(3,0)
-#     input = torch.randn(1,3,8,8)
-#     print(mymodel(input))
-
 
 class ParamidAttention(nn.Module):
     def __init__(self, channel) -> None: #x:([4, 128, 64, 64]) #channel = 128
@@ -87,19 +67,28 @@ class ParamidAttention(nn.Module):
     def forward(self, x):
         out = self.spatial_gate(x) #torch.Size([4, 128, 64, 64])
         out = self.local_attention(out)
-
-        print((self.a*out).shape)
         return self.a*out + self.b*x #torch.Size([4, 128, 64, 64])
 
-
+class EBlock_G(nn.Module):
+    def __init__(self, out_channel, num_res=8):
+        super(EBlock, self).__init__()
+        layers = [ResBlock_G(out_channel, out_channel) for _ in range(num_res)]
+        self.layers = nn.Sequential(*layers)
+    def forward(self, x):
+        return self.layers(x)
+class DBlock_G(nn.Module):
+    def __init__(self, channel, num_res=8):
+        super(DBlock, self).__init__()
+        layers = [ResBlock_G(channel, channel) for _ in range(num_res)]
+        self.layers = nn.Sequential(*layers)
+    def forward(self, x):
+        return self.layers(x)
+    
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res=8):
         super(EBlock, self).__init__()
-
         layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
-        # layers.append(ResBlock(out_channel, out_channel, local=True))
         self.layers = nn.Sequential(*layers)
-
     def forward(self, x):
         return self.layers(x)
 
@@ -107,20 +96,13 @@ class EBlock(nn.Module):
 class DBlock(nn.Module):
     def __init__(self, channel, num_res=8):
         super(DBlock, self).__init__()
-
         layers = [ResBlock(channel, channel) for _ in range(num_res)]
-        # layers.append(ResBlock(channel, channel, local=True))
         self.layers = nn.Sequential(*layers)
-
     def forward(self, x):
         return self.layers(x)
 class EBlock1(nn.Module):
     def __init__(self, out_channel, num_res=8):
         super(EBlock1, self).__init__()
-
-        # layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
-        # layers.append(ResBlock(out_channel, out_channel, local=True))
-        # self.layers = nn.Sequential(*layers)
         self.layers = UNet(out_channel, out_channel, num_res)
     def forward(self, x):
         return self.layers(x)
@@ -130,9 +112,6 @@ class DBlock1(nn.Module):
     def __init__(self, channel, num_res=8):
         super(DBlock1, self).__init__()
 
-        # layers = [ResBlock(channel, channel) for _ in range(num_res)]
-        # layers.append(ResBlock(channel, channel, local=True))
-        # self.layers = nn.Sequential(*layers)
         self.layers = UNet(channel, channel, num_res)
     def forward(self, x):
         return self.layers(x)
@@ -148,23 +127,10 @@ class SCM(nn.Module):
             nn.InstanceNorm2d(out_plane, affine=True)
         )
 
-        # self.conv = BasicConv(out_plane, out_plane, kernel_size=1, stride=1, relu=False)
-
     def forward(self, x):
-        # x = torch.cat([x, self.main(x)], dim=1)
         x = self.main(x)
         return x
 
-
-# class FAM(nn.Module):
-#     def __init__(self, channel):
-#         super(FAM, self).__init__()
-#         self.merge = BasicConv(channel, channel, kernel_size=3, stride=1, relu=False)
-
-#     def forward(self, x1, x2):
-#         x = x1 * x2
-#         out = x1 + self.merge(x)
-#         return out
 class FAM(nn.Module):
     def __init__(self, channel):
         super(FAM, self).__init__()
@@ -182,7 +148,8 @@ class MIMOUNet(nn.Module):
         self.Encoder = nn.ModuleList([
             EBlock1(base_channel, num_res),
             EBlock(base_channel*2, num_res),
-            EBlock(base_channel*4, num_res),
+            #EBlock(base_channel*4, num_res),
+            EBlock_G(base_channel*4, 4),
         ])
 
         self.feat_extract = nn.ModuleList([
@@ -195,7 +162,8 @@ class MIMOUNet(nn.Module):
         ])
 
         self.Decoder = nn.ModuleList([
-            DBlock(base_channel * 4, num_res),
+            #DBlock(base_channel * 4, num_res),
+            DBlock_G(base_channel * 4, 4),
             DBlock(base_channel * 2, num_res),
             DBlock1(base_channel, num_res)
         ])
@@ -217,7 +185,6 @@ class MIMOUNet(nn.Module):
         self.FAM2 = FAM(base_channel * 2)
         self.SCM2 = SCM(base_channel * 2)
 
-        # self.pyramid_attention = ParamidAttention(base_channel * 4)
         pyramid_attention = []
         for _ in range(1):
             pyramid_attention.append(ParamidAttention(base_channel * 4))
