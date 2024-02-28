@@ -71,14 +71,14 @@ class ParamidAttention(nn.Module):
 
 class EBlock_G(nn.Module):
     def __init__(self, out_channel, num_res=8):
-        super(EBlock, self).__init__()
+        super(EBlock_G, self).__init__()
         layers = [ResBlock_G(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
     def forward(self, x):
         return self.layers(x)
 class DBlock_G(nn.Module):
     def __init__(self, channel, num_res=8):
-        super(DBlock, self).__init__()
+        super(DBlock_G, self).__init__()
         layers = [ResBlock_G(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
     def forward(self, x):

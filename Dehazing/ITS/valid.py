@@ -39,8 +39,8 @@ def _valid(model, args, ep):
             psnr = peak_signal_noise_ratio(p_numpy, label_numpy, data_range=1)
 
             psnr_adder(psnr)
-            print('\r%03d'%idx, end=' ')
+            # print('\r%03d'%idx, end=' ')
 
-    print('\n')
+    # print('\n')
     model.train()
     return psnr_adder.average()
