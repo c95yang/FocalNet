@@ -26,9 +26,11 @@ def main(args):
         os.makedirs(args.result_dir)
 
     model = build_net(args.model_name)
-    print(model)
-#    macs, _ = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
+#    print(model)
+    macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
 #    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    print(f"Model FLOPs: {macs}")
+    print(f"Model Parameters: {params}")
 #    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.
 #    para_num = sum(p.numel() for p in model.parameters()) / 1000000.
 #    print('total parameters is %.2fM' % (para_num))
