@@ -149,7 +149,7 @@ class MIMOUNet(nn.Module):
             EBlock1(base_channel, num_res),
             EBlock(base_channel*2, num_res),
             #EBlock(base_channel*4, num_res),
-            EBlock_G(base_channel*4, 4),
+            EBlock_G(base_channel*4, 8),
         ])
 
         self.feat_extract = nn.ModuleList([
@@ -163,7 +163,7 @@ class MIMOUNet(nn.Module):
 
         self.Decoder = nn.ModuleList([
             #DBlock(base_channel * 4, num_res),
-            DBlock_G(base_channel * 4, 4),
+            DBlock_G(base_channel * 4, 8),
             DBlock(base_channel * 2, num_res),
             DBlock1(base_channel, num_res)
         ])
