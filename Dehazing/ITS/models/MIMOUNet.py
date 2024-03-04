@@ -58,7 +58,7 @@ class LocalAttention(nn.Module):
 class ParamidAttention(nn.Module):
     def __init__(self, channel) -> None: #x:([4, 128, 64, 64]) #channel = 128
         super().__init__()
-        pyramid = 1
+        pyramid = 3
         self.spatial_gate = SpatialGate(channel)
         layers = [LocalAttention(channel, p=i) for i in range(pyramid-1,-1,-1)] #only one layer when p = 0?
         self.local_attention = nn.Sequential(*layers)
