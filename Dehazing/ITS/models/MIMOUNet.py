@@ -58,7 +58,7 @@ class LocalAttention(nn.Module):
 class ParamidAttention(nn.Module):
     def __init__(self, channel) -> None: #x:([4, 128, 64, 64]) #channel = 128
         super().__init__()
-        pyramid = 2
+        pyramid = 1
         self.spatial_gate = SpatialGate(channel)
         layers = [LocalAttention(channel, p=i) for i in range(pyramid-1,-1,-1)] #only one layer when p = 0?
         self.local_attention = nn.Sequential(*layers)
@@ -186,7 +186,7 @@ class MIMOUNet(nn.Module):
         self.SCM2 = SCM(base_channel * 2)
 
         pyramid_attention = []
-        for _ in range(1):
+        for _ in range(4):
             pyramid_attention.append(ParamidAttention(base_channel * 4))
         self.pyramid_attentions = nn.Sequential(*pyramid_attention)
     def forward(self, x):
