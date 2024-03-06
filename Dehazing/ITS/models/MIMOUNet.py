@@ -149,7 +149,7 @@ class MIMOUNet(nn.Module):
             EBlock1(base_channel, num_res),
             EBlock(base_channel*2, num_res),
             #EBlock(base_channel*4, num_res),
-            EBlock_G(base_channel*4, 8),
+            EBlock_G(base_channel*4, 16),
         ])
 
         self.feat_extract = nn.ModuleList([
@@ -163,7 +163,7 @@ class MIMOUNet(nn.Module):
 
         self.Decoder = nn.ModuleList([
             #DBlock(base_channel * 4, num_res),
-            DBlock_G(base_channel * 4, 8),
+            DBlock_G(base_channel * 4, 16),
             DBlock(base_channel * 2, num_res),
             DBlock1(base_channel, num_res)
         ])
@@ -186,7 +186,7 @@ class MIMOUNet(nn.Module):
         self.SCM2 = SCM(base_channel * 2)
 
         pyramid_attention = []
-        for _ in range(4):
+        for _ in range(1):
             pyramid_attention.append(ParamidAttention(base_channel * 4))
         self.pyramid_attentions = nn.Sequential(*pyramid_attention)
     def forward(self, x):
