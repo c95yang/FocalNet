@@ -8,7 +8,7 @@ from einops import rearrange, repeat
 from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
 
 class BasicConv(nn.Module):
-    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False):
+    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False, device='cuda'):
         super(BasicConv, self).__init__()
         if bias and norm:
             bias = False
@@ -17,12 +17,12 @@ class BasicConv(nn.Module):
         layers = list()
         if transpose:
             padding = kernel_size // 2 -1
-            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias))
+            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
         else:
             layers.append(
-                nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias))
+                nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
         if norm:
-            layers.append(nn.BatchNorm2d(out_channel))
+            layers.append(nn.BatchNorm2d(out_channel, device=device))
         if relu:
             layers.append(nn.GELU())
         self.main = nn.Sequential(*layers)

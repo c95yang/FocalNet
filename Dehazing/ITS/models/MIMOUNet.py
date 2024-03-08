@@ -35,7 +35,7 @@ class SCM(nn.Module):
             BasicConv(out_plane // 4, out_plane // 2, kernel_size=1, stride=1, relu=True),
             BasicConv(out_plane // 2, out_plane // 2, kernel_size=3, stride=1, relu=True),
             BasicConv(out_plane // 2, out_plane, kernel_size=1, stride=1, relu=False),
-            nn.InstanceNorm2d(out_plane, affine=True)
+            nn.InstanceNorm2d(out_plane, affine=True, device='cuda')
         )
 
         # self.conv = BasicConv(out_plane, out_plane, kernel_size=1, stride=1, relu=False)
