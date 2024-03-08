@@ -27,6 +27,9 @@ def main(args):
 
     model = build_net(args.model_name)
 #    print(model)
+    # Check if parameters are on CPU or GPU
+    for name, param in model.named_parameters():
+        print(f"Parameter {name} is on device: {param.device}")
     macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
 #    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print(f"Model FLOPs: {macs}")

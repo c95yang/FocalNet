@@ -1,6 +1,3 @@
-from email.mime import base
-import math
-import xxlimited
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -48,16 +45,6 @@ class SCM(nn.Module):
         x = self.main(x)
         return x
 
-
-# class FAM(nn.Module):
-#     def __init__(self, channel):
-#         super(FAM, self).__init__()
-#         self.merge = BasicConv(channel, channel, kernel_size=3, stride=1, relu=False)
-
-#     def forward(self, x1, x2):
-#         x = x1 * x2
-#         out = x1 + self.merge(x)
-#         return out
 class FAM(nn.Module):
     def __init__(self, channel):
         super(FAM, self).__init__()
