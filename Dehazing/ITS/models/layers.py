@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from einops import rearrange
-import math
+
 
 class BasicConv(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False):
@@ -24,58 +22,8 @@ class BasicConv(nn.Module):
             layers.append(nn.GELU())
         self.main = nn.Sequential(*layers)
 
-
     def forward(self, x):
         return self.main(x)
-    
-class BasicConv_G(nn.Module):
-    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False):
-        super(BasicConv_G, self).__init__()
-
-        if bias and norm:
-            bias = False
-
-        padding = kernel_size // 2
-        layers = list()
-        if transpose:
-            padding = kernel_size // 2 -1
-            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias))
-        else:
-            layers.append(GhostModule(in_channel, out_channel, stride=stride, relu=False))
-        if norm:
-            layers.append(nn.BatchNorm2d(out_channel))
-        if relu:
-            layers.append(nn.GELU())
-        self.main = nn.Sequential(*layers)
-
-    def forward(self, x):
-        y = self.main(x) #([32, 3, 128, 128])->([32, 16, 128, 128])
-        return y
-    
-class GhostModule(nn.Module):
-    def __init__(self, inp, oup, kernel_size=1, ratio=2, dw_size=3, stride=1, relu=True, transpose=False):
-        super(GhostModule, self).__init__()
-        self.oup = oup
-        init_channels = math.ceil(oup / ratio)
-        new_channels = init_channels*(ratio-1)
-
-        self.primary_conv = nn.Sequential(
-            nn.Conv2d(inp, init_channels, kernel_size, stride, kernel_size//2, bias=False),
-            # nn.BatchNorm2d(init_channels),
-            # nn.ReLU(inplace=True) if relu else nn.Sequential(),
-        )
-
-        self.cheap_operation = nn.Sequential(
-            nn.Conv2d(init_channels, new_channels, dw_size, 1, dw_size//2, groups=init_channels, bias=False),
-            # nn.BatchNorm2d(new_channels),
-            # nn.ReLU(inplace=True) if relu else nn.Sequential(),
-        )
-
-    def forward(self, x):
-        x1 = self.primary_conv(x)
-        x2 = self.cheap_operation(x1)
-        out = torch.cat([x1,x2], dim=1)
-        return out[:,:self.oup,:,:]
 
 
 class ResBlock(nn.Module):
@@ -85,64 +33,6 @@ class ResBlock(nn.Module):
             BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
             BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
         )
+
     def forward(self, x):
         return self.main(x) + x
-    
-class ResBlock_G(nn.Module):
-    def __init__(self, in_channel, out_channel):
-        super(ResBlock_G, self).__init__()
-        self.main = nn.Sequential(
-            BasicConv_G(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
-            BasicConv_G(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
-        )
-    def forward(self, x):
-        return self.main(x) + x
-    
-class ResBlock1(nn.Module):
-    def __init__(self, in_channel, out_channel):
-        super(ResBlock1, self).__init__()
-        self.main = nn.Sequential(
-            BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
-            BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
-        )
-        self.main1 = nn.Sequential(
-            BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
-            BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
-        )
-
-    def forward(self, x1, x2):
-        x1 = self.main(x1) + x1 
-        x2 = self.main1(x2) + x2
-        return x1, x2
-
-
-class UNet(nn.Module):
-    def __init__(self, inchannel, outchannel, num_res) -> None:
-        super().__init__()
-        self.layers = ResBlock1(inchannel//2, outchannel//2) #ResBlock(16, 16)
-        self.num_res = num_res
-        self.down = nn.Conv2d(inchannel//2, outchannel//2, kernel_size=2, stride=2, groups=inchannel//2)
-
-    def forward(self, x):
-        x1, x2 = torch.chunk(x, 2, dim=1)
-        x2 = self.down(x2)
-        x1, x2 = self.layers(x1, x2)
-        x2 = F.interpolate(x2, size=x1.shape[2:], mode='bilinear') #upsample
-        x = torch.cat((x1, x2), dim=1) #torch.Size([4, 32, 256, 256])
-        return x
-
-
-    
-
-if __name__ == '__main__':
-    #model = UNet(32, 32, 8)
-    x = torch.randn(4, 128, 256, 256)
-    #y = model(x)
-    #print(model)
-    channel = 128
-    #model = BasicConv1(channel, channel, 5, stride=1, dilation=2, padding=4, groups=channel)
-    #model = BasicConv1(channel, channel, 7, stride=1, dilation=3, padding=9, groups=channel)
-    #BasicConv1(channel, channel, kernel_size, stride=1, padding=1, groups=channel)
-    #y = model(x)
-    for i in range(5,-1,-1) :
-        print(i)
