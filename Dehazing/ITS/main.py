@@ -26,12 +26,13 @@ def main(args):
         os.makedirs(args.result_dir)
 
     model = build_net(args.model_name)
-    print(model)
+    # print(model)
     # Check if parameters are on CPU or GPU
     for name, param in model.named_parameters():
         #print(f"Parameter {name} is on device: {param.device}")
         if param.device.type == 'cpu':
             print(f"Parameter {name} is on device: {param.device}")
+
     macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
 #    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print(f"Model FLOPs: {macs}")
@@ -41,8 +42,7 @@ def main(args):
 #    print('total parameters is %.2fM' % (para_num))
     # original = 6.81M
     # filter with num of resblocks unchanged = 7.10
-    if torch.cuda.is_available():
-        model.cuda()
+    model.cuda()
     if args.mode == 'train':
         _train(model, args)
 
@@ -59,7 +59,7 @@ if __name__ == '__main__':
    # parser.add_argument('--data_dir', type=str, default='dataset/GOPRO')
 #    parser.add_argument('--data_dir', type=str, default='/share/home/liujie/taoyi/dataset/RSBlur')
     parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
-    parser.add_argument('--data_dir', type=str, default='/share/home/liujie/taoyi/dataset/dehazing')
+    parser.add_argument('--data_dir', type=str, default='/home/cc/Documents/data/reside-indoor')
     # Train
     parser.add_argument('--batch_size', type=int, default=4)#4
     parser.add_argument('--learning_rate', type=float, default=1e-4)#1e4
@@ -67,8 +67,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', type=int, default=300)#300
     parser.add_argument('--print_freq', type=int, default=100)
     parser.add_argument('--num_worker', type=int, default=8)
-    parser.add_argument('--save_freq', type=int, default=10)
-    parser.add_argument('--valid_freq', type=int, default=10)
+    parser.add_argument('--save_freq', type=int, default=1)
+    parser.add_argument('--valid_freq', type=int, default=1)
     parser.add_argument('--resume', type=str, default='')
     parser.add_argument('--gamma', type=float, default=0.5)
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])

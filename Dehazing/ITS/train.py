@@ -47,9 +47,11 @@ def _train(model, args):
             input_img, label_img = batch_data
             input_img = input_img.to(device)
             label_img = label_img.to(device)
+            #print(input_img.shape) torch.Size([4, 3, 256, 256])
 
             optimizer.zero_grad()
             pred_img = model(input_img)
+            # print(pred_img[2].shape) torch.Size([4, 3, 256, 256])
             label_img2 = F.interpolate(label_img, scale_factor=0.5, mode='bilinear')
             label_img4 = F.interpolate(label_img, scale_factor=0.25, mode='bilinear')
             l1 = criterion(pred_img[0], label_img4)

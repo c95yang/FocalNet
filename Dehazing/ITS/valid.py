@@ -8,7 +8,7 @@ import torch.nn.functional as f
 
 
 def _valid(model, args, ep):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = 'cuda'
     its = valid_dataloader(args.data_dir, batch_size=1, num_workers=0)
     model.eval()
     psnr_adder = Adder()
@@ -44,3 +44,18 @@ def _valid(model, args, ep):
     # print('\n')
     model.train()
     return psnr_adder.average()
+
+if __name__ == '__main__':
+    its = valid_dataloader('/home/cc/Documents/data/reside-indoor', batch_size=1, num_workers=0)
+    factor = 4
+    for idx, data in enumerate(its):
+            input_img, label_img = data
+            print("valid: input_img.shape")
+            #print(input_img.shape)
+            h, w = input_img.shape[2], input_img.shape[3]
+            H, W = ((h+factor)//factor)*factor, ((w+factor)//factor*factor)
+            padh = H-h if h%factor!=0 else 0
+            padw = W-w if w%factor!=0 else 0
+            print(h, w, H, W)
+            input_img = f.pad(input_img, (0, padw, 0, padh), 'reflect')
+            print(input_img.shape)

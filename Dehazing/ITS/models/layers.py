@@ -42,15 +42,19 @@ class ResBlock(nn.Module):
 
     def forward(self, x):
         #return self.main(x) + x
-        b, c, h, w = x.shape
-        img_size = h
-        patch_size = 1
-        self.patch_embed = PatchEmbed(img_size, patch_size) #([4, 32, 256, 256]) -> ([4, 256*256, 32]) 
-        self.patch_unembed = PatchUnEmbed(img_size, patch_size)
-        x = self.patch_embed(x)
-        x_size = (h, w)
-        x = self.patch_embed(self.patch_unembed(self.main(x), x_size)) + x
-        return self.patch_unembed(x, x_size)
+        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256])
+        self.img_size = (h, w)
+        self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) 
+        self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256])
+
+        res = self.patch_embed(x) #torch.Size([4, 256*256, 32])
+        res = res.reshape(b, self.img_size[0], self.img_size[1], c) #torch.Size([4, 256, 256, 32])
+        res = self.main(res) #torch.Size([4, 256, 256, 32])
+        res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
+        res = self.patch_unembed(res, self.img_size)
+
+        x = res + x
+        return self.patch_unembed(x, self.img_size)
 
     
 class SS2D(nn.Module):
@@ -216,11 +220,10 @@ class SS2D(nn.Module):
         return out_y[:, 0], inv_y[:, 0], wh_y, invwh_y
 
     def forward(self, x: torch.Tensor, **kwargs):
-        #print(x.shape) torch.Size([4, 65536, 32])
+        #print(x.shape)
+        #torch.Size([4, 256, 256, 32])
 
-        B, HW, C = x.shape
-        H = W = int(math.sqrt(HW))
-        x = x.reshape(B, H, W, C)
+        B, H, W, C = x.shape
 
         xz = self.in_proj(x)
         x, z = xz.chunk(2, dim=-1)
@@ -240,15 +243,8 @@ class SS2D(nn.Module):
 
 class PatchEmbed(nn.Module):
 
-    def __init__(self, img_size, patch_size):
+    def __init__(self):
         super().__init__()
-        img_size = to_2tuple(img_size)
-        patch_size = to_2tuple(patch_size)
-        patches_resolution = [img_size[0] // patch_size[0], img_size[1] // patch_size[1]]
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.patches_resolution = patches_resolution
-        self.num_patches = patches_resolution[0] * patches_resolution[1]
 
     def forward(self, x):
         x = x.flatten(2).transpose(1, 2)  # b Ph*Pw c
@@ -260,16 +256,8 @@ class PatchEmbed(nn.Module):
 
 
 class PatchUnEmbed(nn.Module):
-    def __init__(self, img_size, patch_size):
+    def __init__(self):
         super().__init__()
-        img_size = to_2tuple(img_size)
-        patch_size = to_2tuple(patch_size)
-        patches_resolution = [img_size[0] // patch_size[0], img_size[1] // patch_size[1]]
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.patches_resolution = patches_resolution
-        self.num_patches = patches_resolution[0] * patches_resolution[1]
-
 
     def forward(self, x, x_size):
         x = x.transpose(1, 2).reshape(x.shape[0], -1, x_size[0], x_size[1])  # b Ph*Pw c
