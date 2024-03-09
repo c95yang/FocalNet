@@ -42,19 +42,19 @@ class ResBlock(nn.Module):
 
     def forward(self, x):
         #return self.main(x) + x
-        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256])
+        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
         self.img_size = (h, w)
-        self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) 
-        self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256])
+        self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
+        self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
 
         res = self.patch_embed(x) #torch.Size([4, 256*256, 32])
         res = res.reshape(b, self.img_size[0], self.img_size[1], c) #torch.Size([4, 256, 256, 32])
         res = self.main(res) #torch.Size([4, 256, 256, 32])
         res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
-        res = self.patch_unembed(res, self.img_size)
+        res = self.patch_unembed(res, self.img_size) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
 
-        x = res + x
-        return self.patch_unembed(x, self.img_size)
+        x = res + x #torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        return x
 
     
 class SS2D(nn.Module):
