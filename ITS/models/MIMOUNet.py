@@ -7,11 +7,8 @@ from .layers import *
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res=8):
         super(EBlock, self).__init__()
-
         layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
-
         self.layers = nn.Sequential(*layers)
-
     def forward(self, x):
         return self.layers(x)
 
@@ -19,10 +16,8 @@ class EBlock(nn.Module):
 class DBlock(nn.Module):
     def __init__(self, channel, num_res=8):
         super(DBlock, self).__init__()
-
         layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
-
     def forward(self, x):
         return self.layers(x)
 
@@ -37,11 +32,7 @@ class SCM(nn.Module):
             BasicConv(out_plane // 2, out_plane, kernel_size=1, stride=1, relu=False),
             nn.InstanceNorm2d(out_plane, affine=True, device='cuda')
         )
-
-        # self.conv = BasicConv(out_plane, out_plane, kernel_size=1, stride=1, relu=False)
-
     def forward(self, x):
-        # x = torch.cat([x, self.main(x)], dim=1)
         x = self.main(x)
         return x
 
@@ -49,7 +40,6 @@ class FAM(nn.Module):
     def __init__(self, channel):
         super(FAM, self).__init__()
         self.merge = BasicConv(channel*2, channel, kernel_size=3, stride=1, relu=False)
-
     def forward(self, x1, x2):
         return self.merge(torch.cat([x1, x2], dim=1))
 
@@ -66,8 +56,8 @@ class MIMOUNet(nn.Module):
         ])
 
         self.feat_extract = nn.ModuleList([
-            DoubleConv(3, base_channel, kernel_size=3, relu=True, stride=1),
-            #BasicConv(3, base_channel, kernel_size=3, relu=True, stride=1),
+            #DoubleConv(3, base_channel, kernel_size=3, relu=True, stride=1),
+            BasicConv(3, base_channel, kernel_size=3, relu=True, stride=1),
             BasicConv(base_channel, base_channel*2, kernel_size=3, relu=True, stride=2),
             BasicConv(base_channel*2, base_channel*4, kernel_size=3, relu=True, stride=2),
             BasicConv(base_channel*4, base_channel*2, kernel_size=4, relu=True, stride=2, transpose=True),
