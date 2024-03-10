@@ -66,7 +66,7 @@ class MIMOUNet(nn.Module):
         ])
 
         self.feat_extract = nn.ModuleList([
-            SSMConv(3, base_channel, kernel_size=3, relu=True, stride=1),
+            DoubleConv(3, base_channel, kernel_size=3, relu=True, stride=1),
             #BasicConv(3, base_channel, kernel_size=3, relu=True, stride=1),
             BasicConv(base_channel, base_channel*2, kernel_size=3, relu=True, stride=2),
             BasicConv(base_channel*2, base_channel*4, kernel_size=3, relu=True, stride=2),

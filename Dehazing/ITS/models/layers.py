@@ -24,24 +24,64 @@ except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
 class SSMConv(nn.Module):
-    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False, device='cuda'):
-        super(SSMConv, self).__init__()
+    def __init__(self, channel):
+        super().__init__()
+        #self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
+        #self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
+
+        self.convb  = nn.Sequential(
+            nn.Conv2d(in_channels=channel, out_channels=16, kernel_size=3, stride=1, padding=1,device='cuda'),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16, out_channels=channel, kernel_size=3, stride=1, padding=1, device='cuda')
+                )
+        self.model1 = SS2D(channel)
+        self.model2 = SS2D(channel)
+        #self.model3 = SS2D(
+        #    d_model=height * width, 
+        #    d_state=16, 
+        #    d_conv=4,    
+        #    expand=2,    
+        #)
+        self.smooth = nn.Conv2d(in_channels=channel, out_channels=channel, kernel_size=3, stride=1, padding=1, device='cuda')
+        self.ln = nn.LayerNorm(normalized_shape=channel, device='cuda')
+        self.softmax = nn.Softmax()
+    
+    def forward(self, x):
+        #print("SSMConv x.shape")
+        #print(x.shape)
+        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        x = self.convb(x) + x
+        #print(x.shape)
+        x = self.ln(x.reshape(b, -1, c)).reshape(b, h, w, c)
+        #print(x.shape)
+        y = self.model1(x)
+        #print(x.shape)
+
+        #z = self.model3(y).permute(0, 2, 1)
+        att = self.softmax(self.model2(x))
+        result = att * y
+        output = result.reshape(b, c, h, w)
+        return self.smooth(output)
+
+        #res = self.patch_embed(x) #torch.Size([4, 256*256, 32]): (B, HW, C)
+        #res = res.reshape(b, h, w, c) #torch.Size([4, 256, 256, 32]) : (B, H, W, C)
+        #res = self.ss2d(res) #torch.Size([4, 256, 256, 32])
+        #res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
+        #res = self.patch_unembed(res, (h, w)) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
+
+
+class DoubleConv(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, device='cuda'):
+        super(DoubleConv, self).__init__()
         if bias and norm:
             bias = False
 
         padding = kernel_size // 2
         layers = list()
+        self.in_channel = in_channel
 
-        self.ss2d = SS2D(in_channel)
-        self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
-        self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
-
-        if transpose:
-            padding = kernel_size // 2 -1
-            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
-        else:
-            layers.append(
-                nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
+        layers.append(
+            nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
         if norm:
             layers.append(nn.BatchNorm2d(out_channel, device=device))
         if relu:
@@ -49,14 +89,9 @@ class SSMConv(nn.Module):
         self.main = nn.Sequential(*layers)
 
     def forward(self, x):
-        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
-        img_size = (h, w)
-        res = self.patch_embed(x) #torch.Size([4, 256*256, 32]): (B, HW, C)
-        res = res.reshape(b, img_size[0], img_size[1], c) #torch.Size([4, 256, 256, 32]) : (B, H, W, C)
-        res = self.ss2d(res) #torch.Size([4, 256, 256, 32])
-        res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
-        res = self.patch_unembed(res, img_size) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
-        return self.main(res)
+        ssmconv = SSMConv(self.in_channel)
+        x = ssmconv(x)
+        return self.main(x)
 
 class BasicConv(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False, device='cuda'):
@@ -275,17 +310,22 @@ class SS2D(nn.Module):
         return out_y[:, 0], inv_y[:, 0], wh_y, invwh_y
 
     def forward(self, x: torch.Tensor, **kwargs):
+        #print("SS2D x.shape")
         #print(x.shape)
-        #torch.Size([4, 256, 256, 32])
+        #torch.Size([4, 256, 256, 3])
 
         B, H, W, C = x.shape
 
         xz = self.in_proj(x)
         x, z = xz.chunk(2, dim=-1)
+        #print(x.shape, z.shape)
 
         x = x.permute(0, 3, 1, 2).contiguous()
+        #print(x.shape)
         x = self.act(self.conv2d(x))
+        #print(x.shape)
         y1, y2, y3, y4 = self.forward_core(x)
+        #print(y1.shape, y2.shape, y3.shape, y4.shape)
         assert y1.dtype == torch.float32
         y = y1 + y2 + y3 + y4
         y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
