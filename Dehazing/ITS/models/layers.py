@@ -1,11 +1,62 @@
 import torch
 import torch.nn as nn
+from torch import Tensor
 import math
 import torch.utils.checkpoint as checkpoint
 import torch.nn.functional as F
 from timm.models.layers import to_2tuple
 from einops import rearrange, repeat
-from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
+from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref, mamba_inner_fn
+
+try:
+    from causal_conv1d import causal_conv1d_fn, causal_conv1d_update
+except ImportError:
+    causal_conv1d_fn, causal_conv1d_update = None, None
+
+try:
+    from mamba_ssm.ops.triton.selective_state_update import selective_state_update
+except ImportError:
+    selective_state_update = None
+
+try:
+    from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
+except ImportError:
+    RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
+
+class SSMConv(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False, device='cuda'):
+        super(SSMConv, self).__init__()
+        if bias and norm:
+            bias = False
+
+        padding = kernel_size // 2
+        layers = list()
+
+        self.ss2d = SS2D(in_channel)
+        self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
+        self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
+
+        if transpose:
+            padding = kernel_size // 2 -1
+            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
+        else:
+            layers.append(
+                nn.Conv2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias, device=device))
+        if norm:
+            layers.append(nn.BatchNorm2d(out_channel, device=device))
+        if relu:
+            layers.append(nn.GELU())
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x):
+        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        img_size = (h, w)
+        res = self.patch_embed(x) #torch.Size([4, 256*256, 32]): (B, HW, C)
+        res = res.reshape(b, img_size[0], img_size[1], c) #torch.Size([4, 256, 256, 32]) : (B, H, W, C)
+        res = self.ss2d(res) #torch.Size([4, 256, 256, 32])
+        res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
+        res = self.patch_unembed(res, img_size) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        return self.main(res)
 
 class BasicConv(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size, stride, bias=True, norm=False, relu=True, transpose=False, device='cuda'):
@@ -35,26 +86,26 @@ class ResBlock(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(ResBlock, self).__init__()
         self.main = nn.Sequential(
-            #BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
-            #BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
-            SS2D(in_channel)
+            BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
+            BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
+            #SS2D(in_channel)
         )
 
     def forward(self, x):
-        #return self.main(x) + x
-        b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
-        self.img_size = (h, w)
-        self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
-        self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
+        return self.main(x) + x
+        #b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        #self.img_size = (h, w)
+        #self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
+        #self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
 
-        res = self.patch_embed(x) #torch.Size([4, 256*256, 32])
-        res = res.reshape(b, self.img_size[0], self.img_size[1], c) #torch.Size([4, 256, 256, 32])
-        res = self.main(res) #torch.Size([4, 256, 256, 32])
-        res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
-        res = self.patch_unembed(res, self.img_size) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        #res = self.patch_embed(x) #torch.Size([4, 256*256, 32])
+        #res = res.reshape(b, self.img_size[0], self.img_size[1], c) #torch.Size([4, 256, 256, 32])
+        #res = self.main(res) #torch.Size([4, 256, 256, 32])
+        #res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
+        #res = self.patch_unembed(res, self.img_size) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
 
-        x = res + x #torch.Size([4, 32, 256, 256]): (B, C, H, W)
-        return x
+        #x = res + x #torch.Size([4, 32, 256, 256]): (B, C, H, W)
+        #return x
 
     
 class SS2D(nn.Module):
@@ -75,6 +126,8 @@ class SS2D(nn.Module):
             bias=False,
             device="cuda",
             dtype=None,
+            use_fast_path=True,  # Fused kernel options
+            layer_idx=None
     ):
         factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
@@ -85,6 +138,8 @@ class SS2D(nn.Module):
         self.d_inner = int(self.expand * self.d_model)
         self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank 
         #print(self.d_model, self.d_inner) #32 64 64 128 128 256
+        self.use_fast_path = use_fast_path
+        self.layer_idx = layer_idx
 
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
         self.conv2d = nn.Conv2d(

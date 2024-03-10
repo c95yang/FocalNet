@@ -16,10 +16,10 @@ def main(args):
     # CUDNN
     cudnn.benchmark = True
 
-    if not os.path.exists('results/'):
+    if not os.path.exists(result_folder):
         os.makedirs(args.model_save_dir)
-    if not os.path.exists('results/' + args.model_name + '/'):
-        os.makedirs('results/' + args.model_name + '/')
+    if not os.path.exists(result_folder + args.model_name + '/'):
+        os.makedirs(result_folder + args.model_name + '/')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
     if not os.path.exists(args.result_dir):
@@ -51,6 +51,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+    result_folder = 'results/'
     parser = argparse.ArgumentParser()
 
     # Directories
@@ -74,12 +75,12 @@ if __name__ == '__main__':
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='/home1/cyn/mimo/results/MIMO-UNet/fscale_nores_01_allblock_afterconv1/model_3000.pkl')
+    parser.add_argument('--test_model', type=str, default='')
     parser.add_argument('--save_image', type=bool, default=False, choices=[True, False])
 
     args = parser.parse_args()
-    args.model_save_dir = os.path.join('results/', 'mean', 'full')
-    args.result_dir = os.path.join('results/', args.model_name, 'test')
+    args.model_save_dir = os.path.join(result_folder, 'mean', 'full')
+    args.result_dir = os.path.join(result_folder, args.model_name, 'test')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
     command = 'cp ' + 'models/layers.py ' + args.model_save_dir
