@@ -785,7 +785,7 @@ class VSSG(nn.Module):
         patch_size=4, 
         in_chans=3, 
         #depths=[2, 2, 9, 2], 
-        depths=[2],
+        depths=[1],
         #dims=[96, 192, 384, 768], 
         dims=[96],
         # =========================
@@ -907,7 +907,8 @@ class VSSG(nn.Module):
     @staticmethod
     def _make_patch_embed(in_chans=3, embed_dim=96, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
         return nn.Sequential(
-            nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda'),
+            #nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda'),
+            nn.MaxPool2d(kernel_size=patch_size, stride=patch_size),
             Permute(0, 2, 3, 1),
             (norm_layer(embed_dim, device='cuda') if patch_norm else nn.Identity()), 
         )
@@ -928,11 +929,12 @@ class VSSG(nn.Module):
     
     @staticmethod
     def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
+        #padding = patch_size // 2 
         return nn.Sequential(
             Permute(0, 3, 1, 2),
             nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
-            nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=1, bias=True, device='cuda', padding='same'),
-            #nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda', padding=padding),
+            #nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=1, bias=True, device='cuda', padding='same'),
+            #nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=2*patch_size, stride=patch_size, bias=True, device='cuda', padding=padding),
             #(norm_layer(in_chans) if patch_norm else nn.Identity()), 
         )
     
@@ -1005,17 +1007,10 @@ class VSSG(nn.Module):
         ))
 
     def forward(self, x: torch.Tensor):
-        print('VSSG Start:')
         x = self.patch_embed(x)
-        print("patch_embed:")
-        print(x.shape)
         for layer in self.layers:
             x = layer(x)
-        print("after layers:")
-        print(x.shape)
         x = self.patch_unembed(x)
-        print("unembed:")
-        print(x.shape)
         return x
 
 

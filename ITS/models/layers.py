@@ -26,33 +26,16 @@ class BasicConv(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel):
+    def __init__(self, in_channel, out_channel, dims):
         super(ResBlock, self).__init__()
         self.main = nn.Sequential(
             #BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
             #BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
-            VSSG(in_chans=in_channel)
+            VSSG(in_chans=in_channel, dims=dims)
         )
 
     def forward(self, x):
-        print("ResBlock: x.shape")
-        print(x.shape)
-        res= self.main(x)
-        print("self.main(x).shape")
-        print(res.shape)
-        return res + x
-        #b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
-        #self.img_size = (h, w)
-        #self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)
-        #self.patch_unembed = PatchUnEmbed() #([4, 256*256, 32]) -> ([4, 32, 256, 256]) : (B, HW, C) -> (B, C, H, W)
+        return self.main(x) + x
 
-        #res = self.patch_embed(x) #torch.Size([4, 256*256, 32])
-        #res = res.reshape(b, self.img_size[0], self.img_size[1], c) #torch.Size([4, 256, 256, 32])
-        #res = self.main(res) #torch.Size([4, 256, 256, 32])
-        #res.reshape(b, -1, c) #torch.Size([4, 256*256, 32])
-        #res = self.patch_unembed(res, self.img_size) #torch.Size([4, 32, 256, 256]): (B, C, H, W)
-
-        #x = res + x #torch.Size([4, 32, 256, 256]): (B, C, H, W)
-        #return x
 
     
