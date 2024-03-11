@@ -7,7 +7,8 @@ from .layers import *
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res=8):
         super(EBlock, self).__init__()
-        layers = [VSSG(in_chans=out_channel, dims=out_channel) for _ in range(num_res)]
+        #layers = [VSSG(in_chans=out_channel, dims=out_channel) for _ in range(num_res)]
+        layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
     def forward(self, x):
         return self.layers(x)
@@ -16,7 +17,8 @@ class EBlock(nn.Module):
 class DBlock(nn.Module):
     def __init__(self, channel, num_res=8):
         super(DBlock, self).__init__()
-        layers = [VSSG(in_chans=channel, dims=channel) for _ in range(num_res)]
+        #layers = [VSSG(in_chans=channel, dims=channel) for _ in range(num_res)]
+        layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
     def forward(self, x):
         return self.layers(x)

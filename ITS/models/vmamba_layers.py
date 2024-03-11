@@ -785,7 +785,7 @@ class VSSG(nn.Module):
         patch_size=4, 
         in_chans=3, 
         #depths=[2, 2, 9, 2], 
-        depths=[1],
+        depths=[2],
         #dims=[96, 192, 384, 768], 
         dims=[96],
         # =========================
