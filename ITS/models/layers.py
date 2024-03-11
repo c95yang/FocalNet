@@ -31,12 +31,16 @@ class ResBlock(nn.Module):
         self.main = nn.Sequential(
             #BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
             #BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False)
-            #SS2D(in_channel)
             VSSG(in_chans=in_channel)
         )
 
     def forward(self, x):
-        return self.main(x) + x
+        print("ResBlock: x.shape")
+        print(x.shape)
+        res= self.main(x)
+        print("self.main(x).shape")
+        print(res.shape)
+        return res + x
         #b, c, h, w = x.shape # torch.Size([4, 32, 256, 256]): (B, C, H, W)
         #self.img_size = (h, w)
         #self.patch_embed = PatchEmbed() #([4, 32, 256, 256]) -> ([4, 256*256, 32]) : (B, C, H, W) -> (B, HW, C)

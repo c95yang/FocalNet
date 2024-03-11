@@ -304,6 +304,7 @@ def cross_selective_scan(
     D, N = A_logs.shape
     K, D, R = dt_projs_weight.shape
     L = H * W
+    A_logs.to('cuda')
 
     if nrows == 0:
         if D % 4 == 0:
@@ -337,11 +338,11 @@ def cross_selective_scan(
     dts = torch.einsum("b k r l, k d r -> b k d l", dts, dt_projs_weight)
     xs = xs.view(B, -1, L)
     dts = dts.contiguous().view(B, -1, L)
-    As = -torch.exp(A_logs.to(torch.float)) # (k * c, d_state)
+    As = -torch.exp(A_logs.to(torch.float).to('cuda')) # (k * c, d_state)
     Bs = Bs.contiguous()
     Cs = Cs.contiguous()
-    Ds = Ds.to(torch.float) # (K * c)
-    delta_bias = dt_projs_bias.view(-1).to(torch.float)
+    Ds = Ds.to(torch.float).to('cuda') # (K * c)
+    delta_bias = dt_projs_bias.view(-1).to(torch.float).to('cuda')
 
     if force_fp32:
         xs = xs.to(torch.float)
@@ -515,7 +516,7 @@ class SS2D(nn.Module):
             
             # A, D =======================================
             self.A_logs = self.A_log_init(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
-            self.Ds = self.D_init(d_inner, copies=k_group, merge=True) # (K * D)
+            self.Ds = self.D_init(d_inner, copies=k_group, merge=True, device='cuda') # (K * D)
         elif initialize in ["v1"]:
             # simple init dt_projs, A_logs, Ds
             self.Ds = nn.Parameter(torch.ones((k_group * d_inner)))
@@ -557,7 +558,7 @@ class SS2D(nn.Module):
         return dt_proj
 
     @staticmethod
-    def A_log_init(d_state, d_inner, copies=-1, device=None, merge=True):
+    def A_log_init(d_state, d_inner, copies=-1, device='cuda', merge=True):
         # S4D real initialization
         A = repeat(
             torch.arange(1, d_state + 1, dtype=torch.float32, device=device),
@@ -574,7 +575,7 @@ class SS2D(nn.Module):
         return A_log
 
     @staticmethod
-    def D_init(d_inner, copies=-1, device=None, merge=True):
+    def D_init(d_inner, copies=-1, device='cuda', merge=True):
         # D "skip" parameter
         D = torch.ones(d_inner, device=device)
         if copies > 0:
@@ -897,6 +898,11 @@ class VSSG(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+            m.bias = nn.Parameter(m.bias.to('cuda'))
+            m.weight = nn.Parameter(m.weight.to('cuda'))
+        elif isinstance(m, Permute):
+            # No weights to initialize or move for Permute layers
+            pass
 
     @staticmethod
     def _make_patch_embed(in_chans=3, embed_dim=96, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
@@ -924,7 +930,9 @@ class VSSG(nn.Module):
     def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
         return nn.Sequential(
             Permute(0, 3, 1, 2),
-            nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda'),
+            nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
+            nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=1, bias=True, device='cuda', padding='same'),
+            #nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda', padding=padding),
             #(norm_layer(in_chans) if patch_norm else nn.Identity()), 
         )
     
@@ -997,10 +1005,17 @@ class VSSG(nn.Module):
         ))
 
     def forward(self, x: torch.Tensor):
+        print('VSSG Start:')
         x = self.patch_embed(x)
+        print("patch_embed:")
+        print(x.shape)
         for layer in self.layers:
             x = layer(x)
+        print("after layers:")
+        print(x.shape)
         x = self.patch_unembed(x)
+        print("unembed:")
+        print(x.shape)
         return x
 
 
