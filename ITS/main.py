@@ -69,7 +69,7 @@ if __name__ == '__main__':
     parser.add_argument('--print_freq', type=int, default=100)
     parser.add_argument('--num_worker', type=int, default=8)
     parser.add_argument('--save_freq', type=int, default=10)
-    parser.add_argument('--valid_freq', type=int, default=1)
+    parser.add_argument('--valid_freq', type=int, default=10)
     parser.add_argument('--resume', type=str, default='')
     parser.add_argument('--gamma', type=float, default=0.5)
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
