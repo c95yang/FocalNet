@@ -785,7 +785,7 @@ class VSSG(nn.Module):
         patch_size=4, 
         in_chans=3, 
         #depths=[2, 2, 9, 2], 
-        depths=[2],
+        depths=[1],
         #dims=[96, 192, 384, 768], 
         dims=[96],
         # =========================
@@ -806,7 +806,7 @@ class VSSG(nn.Module):
         drop_path_rate=0.1, 
         patch_norm=True, 
         norm_layer="LN",
-        downsample_version: str = "v2", # "v1", "v2", "v3"
+        downsample_version: str = "v2", # "v1", "v2", "v3", "v_no", "none"
         patchembed_version: str = "v1", # "v1", "v2"
         patchunembed_version: str = "v1", # "v1", 
         use_checkpoint=False,  
@@ -814,9 +814,9 @@ class VSSG(nn.Module):
     ):
         super().__init__()
         self.num_layers = len(depths)
-        if isinstance(dims, int):
-            dims = [int(dims * 2 ** i_layer) for i_layer in range(self.num_layers)]
-        self.num_features = dims[-1]
+        #if isinstance(dims, int):
+        #    dims = [int(dims * 2 ** i_layer) for i_layer in range(self.num_layers)]
+        #self.num_features = dims[-1]
         self.dims = dims
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         
@@ -855,6 +855,7 @@ class VSSG(nn.Module):
             v1=PatchMerging2D, 
             v2=self._make_downsample, 
             v3=self._make_downsample_v3, 
+            v_no=self._make_no_downsample, 
             none=(lambda *_, **_k: None),
         ).get(downsample_version, None)
 
@@ -952,6 +953,15 @@ class VSSG(nn.Module):
         return nn.Sequential(
             Permute(0, 3, 1, 2),
             nn.Conv2d(dim, out_dim, kernel_size=3, stride=2, padding=1, device='cuda'),
+            Permute(0, 2, 3, 1),
+            norm_layer(out_dim),
+        )
+    
+    @staticmethod
+    def _make_no_downsample(dim=96, out_dim=192, norm_layer=nn.LayerNorm):
+        return nn.Sequential(
+            Permute(0, 3, 1, 2),
+            nn.Conv2d(dim, out_dim, kernel_size=1, stride=1, device='cuda'),
             Permute(0, 2, 3, 1),
             norm_layer(out_dim),
         )

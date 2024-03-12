@@ -34,9 +34,10 @@ def main(args):
             print(f"Parameter {name} is on device: {param.device}")
 
     macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
-#    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print(f"Model FLOPs: {macs}")
     print(f"Model Parameters: {params}")
+            
+#    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
 #    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.
 #    para_num = sum(p.numel() for p in model.parameters()) / 1000000.
 #    print('total parameters is %.2fM' % (para_num))
