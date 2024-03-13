@@ -12,6 +12,7 @@ random.seed(1234)
 np.random.seed(1234)
 torch.manual_seed(1234)
 torch.cuda.manual_seed_all(1234)
+
 def main(args):
     # CUDNN
     cudnn.benchmark = True
@@ -26,16 +27,20 @@ def main(args):
         os.makedirs(args.result_dir)
 
     model = build_net(args.model_name)
-    # print(model)
-    # Check if parameters are on CPU or GPU
-    for name, param in model.named_parameters():
-        #print(f"Parameter {name} is on device: {param.device}")
-        if param.device.type == 'cpu':
-            print(f"Parameter {name} is on device: {param.device}")
 
-    macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
-    print(f"Model FLOPs: {macs}")
-    print(f"Model Parameters: {params}")
+    print(model)
+
+    print('# model_parameters: %.2f M'%(sum(param.numel() for param in model.parameters())/ 1e6))
+    #print("number of GFLOPs: %.2f G"%(model.flops() / 1e9))
+    # Check if parameters are on CPU or GPU
+    #for name, param in model.named_parameters():
+        #print(f"Parameter {name} is on device: {param.device}")
+    #    if param.device.type == 'cpu':
+    #        print(f"Parameter {name} is on device: {param.device}")
+
+    #macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
+    #print(f"Model FLOPs: {macs}")
+    #print(f"Model Parameters: {params}")
             
 #    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
 #    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.
@@ -46,6 +51,8 @@ def main(args):
     model.cuda()
     if args.mode == 'train':
         _train(model, args)
+        #print(f"SSM FLOPs: {g['value']}")
+        #print(f"SSM Parameters: {p['value']}")
 
     elif args.mode == 'test':
         _eval(model, args)

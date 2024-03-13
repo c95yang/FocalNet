@@ -1,4 +1,5 @@
 import math
+import copy
 from functools import partial
 from typing import Optional, Callable, Any
 from collections import OrderedDict
@@ -34,6 +35,38 @@ except Exception as e:
     # print(f"WARNING: can not import selective_scan_cuda.", flush=True)
     # print(e, flush=True)
 
+# fvcore flops =======================================
+def flops_selective_scan_fn(B=1, L=256, D=768, N=16, with_D=True, with_Z=False, with_complex=False):
+    """
+    u: r(B D L)
+    delta: r(B D L)
+    A: r(D N)
+    B: r(B N L)
+    C: r(B N L)
+    D: r(D)
+    z: r(B D L)
+    delta_bias: r(D), fp32
+    
+    ignores:
+        [.float(), +, .softplus, .shape, new_zeros, repeat, stack, to(dtype), silu] 
+    """
+    assert not with_complex 
+    # https://github.com/state-spaces/mamba/issues/110
+    flops = 9 * B * L * D * N
+    if with_D:
+        flops += B * D * L
+    if with_Z:
+        flops += B * D * L    
+    return flops
+
+def print_jit_input_names(inputs):
+    print("input params: ", end=" ", flush=True)
+    try: 
+        for i in range(10):
+            print(inputs[i].debugName(), end=" ", flush=True)
+    except Exception as e:
+        pass
+    print("", flush=True)
 
 # cross selective scan ===============================
 class SelectiveScanMamba(torch.autograd.Function):
@@ -192,87 +225,6 @@ class CrossMerge(torch.autograd.Function):
         xs = xs.view(B, 4, C, H, W)
         return xs
 
-
-# these are for ablations =============
-class CrossScan_Ab_2direction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x: torch.Tensor):
-        B, C, H, W = x.shape
-        ctx.shape = (B, C, H, W)
-        xs = x.new_empty((B, 4, C, H * W))
-        xs[:, 0] = x.flatten(2, 3)
-        xs[:, 1] = x.flatten(2, 3)
-        xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
-        return xs
-    
-    @staticmethod
-    def backward(ctx, ys: torch.Tensor):
-        # out: (b, k, d, l)
-        B, C, H, W = ctx.shape
-        L = H * W
-        ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, -1, L)
-        y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, -1, L)
-        return y.view(B, -1, H, W)
-
-
-class CrossMerge_Ab_2direction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, ys: torch.Tensor):
-        B, K, D, H, W = ys.shape
-        ctx.shape = (H, W)
-        ys = ys.view(B, K, D, -1)
-        ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, D, -1)
-        y = ys.sum(dim=1)
-        return y
-    
-    @staticmethod
-    def backward(ctx, x: torch.Tensor):
-        # B, D, L = x.shape
-        # out: (b, k, d, l)
-        H, W = ctx.shape
-        B, C, L = x.shape
-        xs = x.new_empty((B, 4, C, L))
-        xs[:, 0] = x
-        xs[:, 1] = x
-        xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
-        xs = xs.view(B, 4, C, H, W)
-        return xs
-
-
-class CrossScan_Ab_1direction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x: torch.Tensor):
-        B, C, H, W = x.shape
-        ctx.shape = (B, C, H, W)
-        xs = x.view(B, 1, C, H * W).repeat(1, 4, 1, 1).contiguous()
-        return xs
-    
-    @staticmethod
-    def backward(ctx, ys: torch.Tensor):
-        # out: (b, k, d, l)
-        B, C, H, W = ctx.shape
-        y = ys.sum(dim=1).view(B, C, H, W)
-        return y
-
-
-class CrossMerge_Ab_1direction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, ys: torch.Tensor):
-        B, K, D, H, W = ys.shape
-        ctx.shape = (H, W)
-        y = ys.sum(dim=1).view(B, D, H * W)
-        return y
-    
-    @staticmethod
-    def backward(ctx, x: torch.Tensor):
-        # B, D, L = x.shape
-        # out: (b, k, d, l)
-        H, W = ctx.shape
-        B, C, L = x.shape
-        xs = x.view(B, 1, C, L).repeat(1, 4, 1, 1).contiguous().view(B, 4, C, H, W)
-        return xs
-
-
 # =============
 
 def cross_selective_scan(
@@ -364,7 +316,12 @@ def cross_selective_scan(
 
     return (y.to(x.dtype) if to_dtype else y)
 
-
+def selective_scan_flop_jit(inputs, outputs):
+    print_jit_input_names(inputs)
+    B, D, L = inputs[0].type().sizes()
+    N = inputs[2].type().sizes()[1]
+    flops = flops_selective_scan_fn(B=B, L=L, D=D, N=N, with_D=True, with_Z=False)
+    return flops
 # =====================================================
 
 class PatchMerging2D(nn.Module):
@@ -457,15 +414,15 @@ class SS2D(nn.Module):
 
         # forward_type debug =======================================
         FORWARD_TYPES = dict(
-            v0=self.forward_corev0,
+            #v0=self.forward_corev0,
             v2=partial(self.forward_corev2, force_fp32=(not self.disable_force32), SelectiveScan=SelectiveScanCore),
             v3=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex),
-            v31d=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, cross_selective_scan=partial(
-                cross_selective_scan, CrossScan=CrossScan_Ab_1direction, CrossMerge=CrossMerge_Ab_1direction,
-            )),
-            v32d=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, cross_selective_scan=partial(
-                cross_selective_scan, CrossScan=CrossScan_Ab_2direction, CrossMerge=CrossMerge_Ab_2direction,
-            )),
+            #v31d=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, cross_selective_scan=partial(
+            #    cross_selective_scan, CrossScan=CrossScan_Ab_1direction, CrossMerge=CrossMerge_Ab_1direction,
+            #)),
+            #v32d=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, cross_selective_scan=partial(
+            #    cross_selective_scan, CrossScan=CrossScan_Ab_2direction, CrossMerge=CrossMerge_Ab_2direction,
+            #)),
             # ===============================
             fake=partial(self.forward_corev2, force_fp32=(not self.disable_force32), SelectiveScan=SelectiveScanFake),
             v1=partial(self.forward_corev2, force_fp32=True, SelectiveScan=SelectiveScanOflex),
@@ -515,7 +472,8 @@ class SS2D(nn.Module):
             del self.dt_projs
             
             # A, D =======================================
-            self.A_logs = self.A_log_init(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
+            #self.A_logs = self.A_log_init(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
+            self.A_logs = self.make_HiPPO(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
             self.Ds = self.D_init(d_inner, copies=k_group, merge=True, device='cuda') # (K * D)
         elif initialize in ["v1"]:
             # simple init dt_projs, A_logs, Ds
@@ -564,7 +522,8 @@ class SS2D(nn.Module):
             torch.arange(1, d_state + 1, dtype=torch.float32, device=device),
             "n -> d n",
             d=d_inner,
-        ).contiguous()
+        ).contiguous() #(d_inner, d_state)
+        print("normal A: ", A)
         A_log = torch.log(A)  # Keep A_log in fp32
         if copies > 0:
             A_log = repeat(A_log, "d n -> r d n", r=copies)
@@ -573,6 +532,29 @@ class SS2D(nn.Module):
         A_log = nn.Parameter(A_log)
         A_log._no_weight_decay = True
         return A_log
+    
+    @staticmethod
+    def make_HiPPO(d_state, d_inner, copies=-1, device='cuda', merge=True):
+        N = min(d_state, d_inner)
+        P1 = torch.sqrt(1 + 2 * torch.arange(d_inner, device=device))
+        P2 = torch.sqrt(1 + 2 * torch.arange(d_state, device=device))
+        A = P1.unsqueeze(1) * P2.unsqueeze(0)
+        A = torch.tril(A, diagonal = 0)
+        diag = torch.zeros_like(A)
+        diag[:N, :N] = torch.diag(torch.arange(N, device=device))
+        
+        A = A - diag
+        A = -A.contiguous()
+        #print(A)
+        A_log = torch.log(A)  # Keep A_log in fp32
+        if copies > 0:
+            A_log = repeat(A_log, "d n -> r d n", r=copies)
+            if merge:
+                A_log = A_log.flatten(0, 1)
+        A_log = nn.Parameter(A_log)
+        A_log._no_weight_decay = True
+        return A_log
+    
 
     @staticmethod
     def D_init(d_inner, copies=-1, device='cuda', merge=True):
@@ -585,55 +567,6 @@ class SS2D(nn.Module):
         D = nn.Parameter(D)  # Keep in fp32
         D._no_weight_decay = True
         return D
-
-    # only used to run previous version
-    def forward_corev0(self, x: torch.Tensor, to_dtype=False, channel_first=False):
-        def selective_scan(u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=True, nrows=1):
-            return SelectiveScanCore.apply(u, delta, A, B, C, D, delta_bias, delta_softplus, nrows, False)
-
-        if not channel_first:
-            x = x.permute(0, 3, 1, 2).contiguous()
-        B, D, H, W = x.shape
-        D, N = self.A_logs.shape
-        K, D, R = self.dt_projs_weight.shape
-        L = H * W
-
-        x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
-        xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
-
-        x_dbl = torch.einsum("b k d l, k c d -> b k c l", xs, self.x_proj_weight)
-        # x_dbl = x_dbl + self.x_proj_bias.view(1, K, -1, 1)
-        dts, Bs, Cs = torch.split(x_dbl, [R, N, N], dim=2)
-        dts = torch.einsum("b k r l, k d r -> b k d l", dts, self.dt_projs_weight)
-
-        xs = xs.float().view(B, -1, L) # (b, k * d, l)
-        dts = dts.contiguous().float().view(B, -1, L) # (b, k * d, l)
-        Bs = Bs.float() # (b, k, d_state, l)
-        Cs = Cs.float() # (b, k, d_state, l)
-        
-        As = -torch.exp(self.A_logs.float()) # (k * d, d_state)
-        Ds = self.Ds.float() # (k * d)
-        dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
-
-        # assert len(xs.shape) == 3 and len(dts.shape) == 3 and len(Bs.shape) == 4 and len(Cs.shape) == 4
-        # assert len(As.shape) == 2 and len(Ds.shape) == 1 and len(dt_projs_bias.shape) == 1
-
-        out_y = selective_scan(
-            xs, dts, 
-            As, Bs, Cs, Ds,
-            delta_bias=dt_projs_bias,
-            delta_softplus=True,
-        ).view(B, K, -1, L)
-        # assert out_y.dtype == torch.float
-
-        inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
-        wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        y = out_y[:, 0] + inv_y[:, 0] + wh_y + invwh_y
-        y = y.transpose(dim0=1, dim1=2).contiguous() # (B, L, C)
-        y = self.out_norm(y).view(B, H, W, -1)
-
-        return (y.to(x.dtype) if to_dtype else y)
     
     def forward_corev2(self, x: torch.Tensor, channel_first=False, SelectiveScan=SelectiveScanOflex, cross_selective_scan=cross_selective_scan, force_fp32=None):
         if not channel_first:
@@ -660,6 +593,7 @@ class SS2D(nn.Module):
             x = self.conv2d(x) # (b, d, h, w)
         x = self.act(x)
         y = self.forward_core(x, channel_first=with_dconv)
+        # print("X.SHAPE: ", x.shape)
         if not self.disable_z:
             y = y * z
         out = self.dropout(self.out_proj(y))
@@ -785,7 +719,7 @@ class VSSG(nn.Module):
         patch_size=4, 
         in_chans=3, 
         #depths=[2, 2, 9, 2], 
-        depths=[1],
+        depths=[2],
         #dims=[96, 192, 384, 768], 
         dims=[96],
         # =========================
@@ -807,8 +741,8 @@ class VSSG(nn.Module):
         patch_norm=True, 
         norm_layer="LN",
         downsample_version: str = "v2", # "v1", "v2", "v3", "v_no", "none"
-        patchembed_version: str = "v1", # "v1", "v2"
-        patchunembed_version: str = "v1", # "v1", 
+        patchembed_version: str = "v1", # "v1"
+        patchunembed_version: str = "v1", # "v1"
         use_checkpoint=False,  
         **kwargs,
     ):
@@ -843,7 +777,6 @@ class VSSG(nn.Module):
 
         _make_patch_embed = dict(
             v1=self._make_patch_embed, 
-            v2=self._make_patch_embed_v2,
         ).get(patchembed_version, None)
         _make_patch_unembed = dict(
             v1=self._make_patch_unembed, 
@@ -912,20 +845,6 @@ class VSSG(nn.Module):
             nn.MaxPool2d(kernel_size=patch_size, stride=patch_size),
             Permute(0, 2, 3, 1),
             (norm_layer(embed_dim, device='cuda') if patch_norm else nn.Identity()), 
-        )
-    
-    @staticmethod
-    def _make_patch_embed_v2(in_chans=3, embed_dim=96, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
-        assert patch_size == 4
-        return nn.Sequential(
-            nn.Conv2d(in_chans, embed_dim // 2, kernel_size=3, stride=2, padding=1),
-            (Permute(0, 2, 3, 1) if patch_norm else nn.Identity()),
-            (norm_layer(embed_dim // 2) if patch_norm else nn.Identity()),
-            (Permute(0, 3, 1, 2) if patch_norm else nn.Identity()),
-            nn.GELU(),
-            nn.Conv2d(embed_dim // 2, embed_dim, kernel_size=3, stride=2, padding=1),
-            Permute(0, 2, 3, 1),
-            (norm_layer(embed_dim) if patch_norm else nn.Identity()),
         )
     
     @staticmethod
@@ -1021,7 +940,34 @@ class VSSG(nn.Module):
         for layer in self.layers:
             x = layer(x)
         x = self.patch_unembed(x)
+        # additional norm layer after unembedding
+        x = nn.LayerNorm(x.shape[-2:], device='cuda')(x)
         return x
+
+    def flops(self, x):
+        shape = x.shape[1:]
+        supported_ops={
+            "aten::silu": None, # as relu is in _IGNORED_OPS
+            "aten::neg": None, # as relu is in _IGNORED_OPS
+            "aten::exp": None, # as relu is in _IGNORED_OPS
+            "aten::flip": None, # as permute is in _IGNORED_OPS
+            # "prim::PythonOp.CrossScan": None,
+            # "prim::PythonOp.CrossMerge": None,
+            "prim::PythonOp.SelectiveScanMamba": selective_scan_flop_jit,
+            "prim::PythonOp.SelectiveScanOflex": selective_scan_flop_jit,
+            "prim::PythonOp.SelectiveScanCore": selective_scan_flop_jit,
+            "prim::PythonOp.SelectiveScanNRow": selective_scan_flop_jit,
+        }
+
+        model = copy.deepcopy(self)
+        model.cuda().eval()
+
+        input = torch.randn((1, *shape), device=next(model.parameters()).device)
+        params = parameter_count(model)[""]
+        Gflops, unsupported = flop_count(model=model, inputs=(input,), supported_ops=supported_ops)
+        del model, input
+        return sum(Gflops.values()) * 1e9
+        # return f"params {params} GFLOPs {sum(Gflops.values())}"
 
 
 

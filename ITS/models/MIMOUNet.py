@@ -5,26 +5,27 @@ from .layers import *
 
 
 class EBlock(nn.Module):
-    def __init__(self, out_channel, num_res=8):
+    def __init__(self, out_channel, num_res):
         super(EBlock, self).__init__()
         self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
         self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
-        #layers = [VSSG(in_chans=out_channel, dims=out_channel, mlp_ratio=1.0) for _ in range(num_res)]
-        layers = [VSSG(in_chans=out_channel, dims=[out_channel, 2*out_channel, out_channel], mlp_ratio=1.0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
+        layers = [VSSG(in_chans=out_channel, depths=[1], dims=[out_channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+        #layers = [VSSG(in_chans=out_channel, dims=[out_channel, 2*out_channel, out_channel], mlp_ratio=1.0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
         #layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
+
     def forward(self, x):
         res = self.layers(x)
         return self.a*res + self.b*x #channel attention
 
 
 class DBlock(nn.Module):
-    def __init__(self, channel, num_res=8):
+    def __init__(self, channel, num_res):
         super(DBlock, self).__init__()
         self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
         self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
-        #layers = [VSSG(in_chans=channel, dims=channel, mlp_ratio=1.0) for _ in range(num_res)]
-        layers = [VSSG(in_chans=channel, dims=[channel, 2*channel, channel], mlp_ratio=1.0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
+        layers = [VSSG(in_chans=channel, depths=[1], dims=[channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+        #layers = [VSSG(in_chans=channel, dims=[channel, 2*channel, channel], mlp_ratio=0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
         #layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
     def forward(self, x):
@@ -60,9 +61,9 @@ class MIMOUNet(nn.Module):
         base_channel = 32
 
         self.Encoder = nn.ModuleList([
-            EBlock(base_channel, num_res),
-            EBlock(base_channel*2, num_res),
-            EBlock(base_channel*4, num_res),
+            EBlock(base_channel, num_res=num_res),
+            EBlock(base_channel*2, num_res=num_res),
+            EBlock(base_channel*4, num_res=num_res),
         ])
 
         self.feat_extract = nn.ModuleList([
@@ -76,9 +77,9 @@ class MIMOUNet(nn.Module):
         ])
 
         self.Decoder = nn.ModuleList([
-            DBlock(base_channel * 4, num_res),
-            DBlock(base_channel * 2, num_res),
-            DBlock(base_channel, num_res)
+            DBlock(base_channel * 4, num_res=num_res),
+            DBlock(base_channel * 2, num_res=num_res),
+            DBlock(base_channel, num_res=num_res)
         ])
 
         self.Convs = nn.ModuleList([
@@ -136,8 +137,13 @@ class MIMOUNet(nn.Module):
         z = self.Decoder[2](z)
         z = self.feat_extract[5](z)
         outputs.append(z+x)
-
+        
         return outputs
+    
+    def flops(self):
+        flops = 0
+        return flops
+
 
 class MIMOUNetPlus(nn.Module):
     def __init__(self, num_res = 20):
