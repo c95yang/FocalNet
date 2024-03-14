@@ -48,7 +48,7 @@ def main(args):
 
     macs = macs.replace('GMac', '')
     macs_float = float(macs)
-    print(f"Model FLOPs: {macs} GMac, VSSG FLOPs: {macs_ssm:.2f} G. Total: {macs_float + macs_ssm:.2f} G")
+    print(f"Model FLOPs: {macs} GFLOPs, VSSG FLOPs: {macs_ssm:.2f} GFLOPs. Total: {macs_float + macs_ssm:.2f} GFLOPs")
             
 #    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
 #    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.

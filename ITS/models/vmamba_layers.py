@@ -849,7 +849,7 @@ class VSSG(nn.Module):
     
     @staticmethod
     def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4):
-        step = patch_size
+        # step = patch_size
         return nn.Sequential(
             Permute(0, 3, 1, 2),
             nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
