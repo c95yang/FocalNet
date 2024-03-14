@@ -14,7 +14,7 @@ def _valid(model, args, ep):
     psnr_adder = Adder()
 
     with torch.no_grad():
-        print('Start Evaluation')
+        print('Start Validation...')
         factor = 16
         for idx, data in enumerate(its):
             input_img, label_img = data

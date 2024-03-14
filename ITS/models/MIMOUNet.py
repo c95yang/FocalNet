@@ -98,7 +98,6 @@ class MIMOUNet(nn.Module):
         ])
 
         self.feat_extract = nn.ModuleList([
-            #DoubleConv(3, base_channel, kernel_size=3, relu=True, stride=1),
             BasicConv(3, base_channel, kernel_size=3, relu=True, stride=1),
             BasicConv(base_channel, base_channel*2, kernel_size=3, relu=True, stride=2),
             BasicConv(base_channel*2, base_channel*4, kernel_size=3, relu=True, stride=2),
@@ -139,20 +138,16 @@ class MIMOUNet(nn.Module):
         outputs = list()
         # 256
         x_ = self.feat_extract[0](x)
-        #print(x_.shape)
         res1 = self.Encoder[0](x_)
         # 128
         z = self.feat_extract[1](res1)
         z = self.FAM2(z, z2)
-        #print(z.shape)
         res2 = self.Encoder[1](z)
         # 64
         z = self.feat_extract[2](res2)
         z = self.FAM1(z, z4)
-        #print(z.shape)
         z = self.Encoder[2](z)
 
-        #print(z.shape)
         z = self.Decoder[0](z)
         z_ = self.ConvsOut[0](z)
         # 128
@@ -161,7 +156,6 @@ class MIMOUNet(nn.Module):
 
         z = torch.cat([z, res2], dim=1)
         z = self.Convs[0](z)
-        #print(z.shape)
         z = self.Decoder[1](z)
         z_ = self.ConvsOut[1](z)
         # 256
@@ -170,7 +164,6 @@ class MIMOUNet(nn.Module):
 
         z = torch.cat([z, res1], dim=1)
         z = self.Convs[1](z)
-        #print(z.shape)
         z = self.Decoder[2](z)
         z = self.feat_extract[5](z)
         outputs.append(z+x)
@@ -180,11 +173,11 @@ class MIMOUNet(nn.Module):
     def flops(self, x):
         base_channel = 32
         flops = 0
-        B, C, H, W = x.shape
+        _, H, W = x.shape
  
-        z256 = torch.randn(B, base_channel, H, W, device='cuda')
-        z128 = torch.randn(B, base_channel*2, H//2, W//2, device='cuda')
-        z64 = torch.randn(B, base_channel*4, H//4, W//4, device='cuda')
+        z256 = torch.randn(1, base_channel, H, W, device='cuda')
+        z128 = torch.randn(1, base_channel*2, H//2, W//2, device='cuda')
+        z64 = torch.randn(1, base_channel*4, H//4, W//4, device='cuda')
 
         flops += self.Encoder[0].flops(z256)
         flops += self.Encoder[1].flops(z128)

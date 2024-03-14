@@ -15,7 +15,7 @@ import cv2
 def _eval(model, args):
     state_dict = torch.load(args.test_model)
     model.load_state_dict(state_dict['model'])
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda')
     dataloader = test_dataloader(args.data_dir, batch_size=1, num_workers=0)
     torch.cuda.empty_cache()
     adder = Adder()

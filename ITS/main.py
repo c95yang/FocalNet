@@ -31,10 +31,10 @@ def main(args):
     #print(model)
 
     # print('# model_parameters: %.2f M'%(sum(param.numel() for param in model.parameters())/ 1e6))
-    x_fake = torch.randn(4, 3, 256, 256)
+    x_fake = torch.randn(3, 256, 256)
     macs_ssm = model.flops(x_fake) / 1e9
     #print("number of GFLOPs: %.2f G"%(macs_ssm))
-    
+
     # Check if parameters are on CPU or GPU
     #for name, param in model.named_parameters():
         #print(f"Parameter {name} is on device: {param.device}")
