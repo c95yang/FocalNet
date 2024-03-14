@@ -9,8 +9,16 @@ class EBlock(nn.Module):
         super(EBlock, self).__init__()
         self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
         self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
-        layers = [VSSG(in_chans=out_channel, depths=[2], dims=[out_channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+
+        #keep default: depth [2], dim [96]
+        layers = [VSSG(in_chans=out_channel, mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+
+        #keep hidden_dims as input dims
+        #layers = [VSSG(in_chans=out_channel, depths=[2], dims=[out_channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)] 
+
+        #uiu
         #layers = [VSSG(in_chans=out_channel, dims=[out_channel, 2*out_channel, out_channel], mlp_ratio=1.0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
+        
         #layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
 
@@ -31,8 +39,16 @@ class DBlock(nn.Module):
         super(DBlock, self).__init__()
         self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
         self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
-        layers = [VSSG(in_chans=channel, depths=[2], dims=[channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+
+        #keep default: depth [2], dim [96]
+        layers = [VSSG(in_chans=channel, mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+
+        #keep hidden_dims as input dims
+        #layers = [VSSG(in_chans=channel, depths=[2], dims=[channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+
+        #uiu
         #layers = [VSSG(in_chans=channel, dims=[channel, 2*channel, channel], mlp_ratio=0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
+
         #layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
 
