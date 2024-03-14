@@ -9,7 +9,7 @@ class EBlock(nn.Module):
         super(EBlock, self).__init__()
         self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
         self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
-        layers = [VSSG(in_chans=out_channel, depths=[1], dims=[out_channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+        layers = [VSSG(in_chans=out_channel, depths=[2], dims=[out_channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
         #layers = [VSSG(in_chans=out_channel, dims=[out_channel, 2*out_channel, out_channel], mlp_ratio=1.0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
         #layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
@@ -17,6 +17,13 @@ class EBlock(nn.Module):
     def forward(self, x):
         res = self.layers(x)
         return self.a*res + self.b*x #channel attention
+    
+    def flops(self, x):
+        flops = 0
+        for layer in self.layers:
+            flops += VSSG.flops(self, x)
+            x = layer(x)
+        return flops
 
 
 class DBlock(nn.Module):
@@ -24,13 +31,21 @@ class DBlock(nn.Module):
         super(DBlock, self).__init__()
         self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
         self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
-        layers = [VSSG(in_chans=channel, depths=[1], dims=[channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
+        layers = [VSSG(in_chans=channel, depths=[2], dims=[channel], mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
         #layers = [VSSG(in_chans=channel, dims=[channel, 2*channel, channel], mlp_ratio=0, depths=[1,1,1], downsample_version="v_no") for _ in range(num_res)]
         #layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
+
     def forward(self, x):
         res = self.layers(x)
         return self.a*res + self.b*x #channel attention
+    
+    def flops(self, x):
+        flops = 0
+        for layer in self.layers:
+            flops += VSSG.flops(self, x)
+            x = layer(x)
+        return flops
 
 
 class SCM(nn.Module):
@@ -108,16 +123,20 @@ class MIMOUNet(nn.Module):
         outputs = list()
         # 256
         x_ = self.feat_extract[0](x)
+        #print(x_.shape)
         res1 = self.Encoder[0](x_)
         # 128
         z = self.feat_extract[1](res1)
         z = self.FAM2(z, z2)
+        #print(z.shape)
         res2 = self.Encoder[1](z)
         # 64
         z = self.feat_extract[2](res2)
         z = self.FAM1(z, z4)
+        #print(z.shape)
         z = self.Encoder[2](z)
 
+        #print(z.shape)
         z = self.Decoder[0](z)
         z_ = self.ConvsOut[0](z)
         # 128
@@ -126,6 +145,7 @@ class MIMOUNet(nn.Module):
 
         z = torch.cat([z, res2], dim=1)
         z = self.Convs[0](z)
+        #print(z.shape)
         z = self.Decoder[1](z)
         z_ = self.ConvsOut[1](z)
         # 256
@@ -134,14 +154,29 @@ class MIMOUNet(nn.Module):
 
         z = torch.cat([z, res1], dim=1)
         z = self.Convs[1](z)
+        #print(z.shape)
         z = self.Decoder[2](z)
         z = self.feat_extract[5](z)
         outputs.append(z+x)
         
         return outputs
     
-    def flops(self):
+    def flops(self, x):
+        base_channel = 32
         flops = 0
+        B, C, H, W = x.shape
+ 
+        z256 = torch.randn(B, base_channel, H, W, device='cuda')
+        z128 = torch.randn(B, base_channel*2, H//2, W//2, device='cuda')
+        z64 = torch.randn(B, base_channel*4, H//4, W//4, device='cuda')
+
+        flops += self.Encoder[0].flops(z256)
+        flops += self.Encoder[1].flops(z128)
+        flops += self.Encoder[2].flops(z64)
+        flops += self.Decoder[0].flops(z64)
+        flops += self.Decoder[1].flops(z128)
+        flops += self.Decoder[2].flops(z256)
+
         return flops
 
 

@@ -472,8 +472,8 @@ class SS2D(nn.Module):
             del self.dt_projs
             
             # A, D =======================================
-            #self.A_logs = self.A_log_init(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
-            self.A_logs = self.make_HiPPO(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
+            self.A_logs = self.A_log_init(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
+            #self.A_logs = self.make_HiPPO(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
             self.Ds = self.D_init(d_inner, copies=k_group, merge=True, device='cuda') # (K * D)
         elif initialize in ["v1"]:
             # simple init dt_projs, A_logs, Ds
@@ -523,7 +523,7 @@ class SS2D(nn.Module):
             "n -> d n",
             d=d_inner,
         ).contiguous() #(d_inner, d_state)
-        print("normal A: ", A)
+        # print("normal A: ", A)
         A_log = torch.log(A)  # Keep A_log in fp32
         if copies > 0:
             A_log = repeat(A_log, "d n -> r d n", r=copies)
@@ -947,10 +947,10 @@ class VSSG(nn.Module):
     def flops(self, x):
         shape = x.shape[1:]
         supported_ops={
-            "aten::silu": None, # as relu is in _IGNORED_OPS
-            "aten::neg": None, # as relu is in _IGNORED_OPS
-            "aten::exp": None, # as relu is in _IGNORED_OPS
-            "aten::flip": None, # as permute is in _IGNORED_OPS
+            #"aten::silu": None, # as relu is in _IGNORED_OPS
+            #"aten::neg": None, # as relu is in _IGNORED_OPS
+            #"aten::exp": None, # as relu is in _IGNORED_OPS
+            #"aten::flip": None, # as permute is in _IGNORED_OPS
             # "prim::PythonOp.CrossScan": None,
             # "prim::PythonOp.CrossMerge": None,
             "prim::PythonOp.SelectiveScanMamba": selective_scan_flop_jit,
@@ -967,7 +967,7 @@ class VSSG(nn.Module):
         Gflops, unsupported = flop_count(model=model, inputs=(input,), supported_ops=supported_ops)
         del model, input
         return sum(Gflops.values()) * 1e9
-        # return f"params {params} GFLOPs {sum(Gflops.values())}"
+        return f"params {params} GFLOPs {sum(Gflops.values())}"
 
 
 
