@@ -440,93 +440,13 @@ class SS2D(nn.Module):
             dt_min=dt_min, dt_max=dt_max, dt_init=dt_init, dt_scale=dt_scale, dt_init_floor=dt_init_floor,
             initialize=initialize, forward_type=forward_type, channel_first=channel_first,
         )
-        # only used to run previous version
-        if forward_type.startswith("v0"):
-            self.__initv0__(seq=("seq" in forward_type), **kwargs)
-            return
-        elif forward_type.startswith("xv"):
+
+        if forward_type.startswith("xv"):
             self.__initxv__(**kwargs)
             return
         else:
             self.__initv2__(**kwargs)
             return
-
-    # only used to run previous version
-    def __initv0__(
-        self,
-        # basic dims ===========
-        d_model=96,
-        d_state=16,
-        ssm_ratio=2.0,
-        dt_rank="auto",
-        # ======================
-        dropout=0.0,
-        # ======================
-        seq=False,
-        force_fp32=True,
-        **kwargs,
-    ):
-        if "channel_first" in kwargs:
-            assert not kwargs["channel_first"]
-        act_layer = nn.SiLU
-        dt_min = 0.001
-        dt_max = 0.1
-        dt_init = "random"
-        dt_scale = 1.0
-        dt_init_floor = 1e-4
-        bias = False
-        conv_bias = True
-        d_conv = 3
-        k_group = 4
-        factory_kwargs = {"device": 'cuda', "dtype": None}
-        super().__init__()
-        d_inner = int(ssm_ratio * d_model)
-        dt_rank = math.ceil(d_model / 16) if dt_rank == "auto" else dt_rank
-
-        self.forward = self.forwardv0 
-        if seq:
-            self.forward = partial(self.forwardv0, seq=True)
-        if not force_fp32:
-            self.forward = partial(self.forwardv0, force_fp32=False)
-
-        # in proj ============================
-        self.in_proj = nn.Linear(d_model, d_inner * 2, bias=bias, **factory_kwargs)
-        self.act: nn.Module = act_layer()
-        self.conv2d = nn.Conv2d(
-            in_channels=d_inner,
-            out_channels=d_inner,
-            groups=d_inner,
-            bias=conv_bias,
-            kernel_size=d_conv,
-            padding=(d_conv - 1) // 2,
-            **factory_kwargs,
-        )
-
-        # x proj ============================
-        self.x_proj = [
-            nn.Linear(d_inner, (dt_rank + d_state * 2), bias=False,**factory_kwargs)
-            for _ in range(k_group)
-        ]
-        self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K, N, inner)
-        del self.x_proj
-
-        # dt proj ============================
-        self.dt_projs = [
-            self.dt_init(dt_rank, d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs)
-            for _ in range(k_group)
-        ]
-        self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K, inner, rank)
-        self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K, inner)
-        del self.dt_projs
-            
-        # A, D =======================================
-        self.A_logs = self.A_log_init(d_state, d_inner, copies=k_group, merge=True) # (K * D, N)
-        self.Ds = self.D_init(d_inner, copies=k_group, merge=True) # (K * D)     
-
-        # out proj =======================================
-        self.out_norm = nn.LayerNorm(d_inner, device='cuda')
-        self.out_proj = nn.Linear(d_inner, d_model, bias=bias, **factory_kwargs)
-        self.dropout = nn.Dropout(dropout) if dropout > 0. else nn.Identity()
 
     def __initv2__(
         self,
@@ -594,20 +514,16 @@ class SS2D(nn.Module):
             forward_type = forward_type[:-len("sigmoid")]
             self.out_norm = nn.Sigmoid()
         elif channel_first:
-            self.out_norm = LayerNorm2d(d_inner)
+            self.out_norm = LayerNorm2d(d_inner, device='cuda')
         else:
             self.out_norm_shape = "v0"
-            self.out_norm = nn.LayerNorm(d_inner)
+            self.out_norm = nn.LayerNorm(d_inner, device='cuda')
 
         # forward_type debug =======================================
         FORWARD_TYPES = dict(
             v01=partial(self.forward_corev2, force_fp32=(not self.disable_force32), SelectiveScan=SelectiveScanMamba),
             v2=partial(self.forward_corev2, force_fp32=(not self.disable_force32), SelectiveScan=SelectiveScanCore),
             v3=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex),
-            #v31d=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, CrossScan=CrossScan_Ab_1direction, CrossMerge=CrossMerge_Ab_1direction,
-            #),
-            #v32d=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, CrossScan=CrossScan_Ab_2direction, CrossMerge=CrossMerge_Ab_2direction,
-            #),
             v4=partial(self.forward_corev2, force_fp32=False, SelectiveScan=SelectiveScanOflex, no_einsum=True, CrossScan=CrossScanTriton, CrossMerge=CrossMergeTriton),
             # ===============================
             v1=partial(self.forward_corev2, force_fp32=True, SelectiveScan=SelectiveScanOflex),
@@ -737,10 +653,10 @@ class SS2D(nn.Module):
             forward_type = forward_type[:-len("sigmoid")]
             self.out_norm = nn.Sigmoid()
         elif channel_first:
-            self.out_norm = LayerNorm2d(d_inner)
+            self.out_norm = LayerNorm2d(d_inner, device='cuda')
         else:
             self.out_norm_shape = "v0"
-            self.out_norm = nn.LayerNorm(d_inner)
+            self.out_norm = nn.LayerNorm(d_inner, device='cuda')
 
         k_group = 4
         # in proj =======================================
@@ -754,7 +670,7 @@ class SS2D(nn.Module):
             if forward_type.startswith("xv2"):
                 self.in_proj = nn.Conv2d(d_model, d_inner + d_inner + 8 * d_state, 1, bias=bias, **factory_kwargs)
                 self.forward = partial(self.forwardxv, mode="xv2")
-                del self.dt_projs_weight
+                # del self.dt_projs_weight
 
             if forward_type.startswith("xv3"):
                 self.forward = partial(self.forwardxv, mode="xv3")
@@ -879,79 +795,6 @@ class SS2D(nn.Module):
         D = nn.Parameter(D)  # Keep in fp32
         D._no_weight_decay = True
         return D
-    
-    # only used to run previous version
-    def forwardv0(self, x: torch.Tensor, SelectiveScan = SelectiveScanMamba, seq=False, force_fp32=True, **kwargs):
-        x = self.in_proj(x)
-        x, z = x.chunk(2, dim=-1) # (b, h, w, d)
-        z = self.act(z)
-        x = x.permute(0, 3, 1, 2).contiguous()
-        x = self.conv2d(x) # (b, d, h, w)
-        x = self.act(x)
-        
-        def selective_scan(u, delta, A, B, C, D=None, delta_bias=None, delta_softplus=True, nrows=1):
-            return SelectiveScan.apply(u, delta, A, B, C, D, delta_bias, delta_softplus, nrows, False)
-
-        B, D, H, W = x.shape
-        D, N = self.A_logs.shape
-        K, D, R = self.dt_projs_weight.shape
-        L = H * W
-
-        x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
-        xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
-
-        x_dbl = torch.einsum("b k d l, k c d -> b k c l", xs, self.x_proj_weight)
-        # x_dbl = x_dbl + self.x_proj_bias.view(1, K, -1, 1)
-        dts, Bs, Cs = torch.split(x_dbl, [R, N, N], dim=2)
-        dts = torch.einsum("b k r l, k d r -> b k d l", dts, self.dt_projs_weight)
-
-        xs = xs.view(B, -1, L) # (b, k * d, l)
-        dts = dts.contiguous().view(B, -1, L) # (b, k * d, l)
-        Bs = Bs.contiguous() # (b, k, d_state, l)
-        Cs = Cs.contiguous() # (b, k, d_state, l)
-        
-        As = -torch.exp(self.A_logs.float()) # (k * d, d_state)
-        Ds = self.Ds.float() # (k * d)
-        dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
-
-        # assert len(xs.shape) == 3 and len(dts.shape) == 3 and len(Bs.shape) == 4 and len(Cs.shape) == 4
-        # assert len(As.shape) == 2 and len(Ds.shape) == 1 and len(dt_projs_bias.shape) == 1
-        to_fp32 = lambda *args: (_a.to(torch.float32) for _a in args)
-        
-        if force_fp32:
-            xs, dts, Bs, Cs = to_fp32(xs, dts, Bs, Cs)
-
-        if seq:
-            out_y = []
-            for i in range(4):
-                yi = selective_scan(
-                    xs.view(B, K, -1, L)[:, i], dts.view(B, K, -1, L)[:, i], 
-                    As.view(K, -1, N)[i], Bs[:, i].unsqueeze(1), Cs[:, i].unsqueeze(1), Ds.view(K, -1)[i],
-                    delta_bias=dt_projs_bias.view(K, -1)[i],
-                    delta_softplus=True,
-                ).view(B, -1, L)
-                out_y.append(yi)
-            out_y = torch.stack(out_y, dim=1)
-        else:
-            out_y = selective_scan(
-                xs, dts, 
-                As, Bs, Cs, Ds,
-                delta_bias=dt_projs_bias,
-                delta_softplus=True,
-            ).view(B, K, -1, L)
-        assert out_y.dtype == torch.float
-
-        inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
-        wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        y = out_y[:, 0] + inv_y[:, 0] + wh_y + invwh_y
-        
-        y = y.transpose(dim0=1, dim1=2).contiguous() # (B, L, C)
-        y = self.out_norm(y).view(B, H, W, -1)
-
-        y = y * z
-        out = self.dropout(self.out_proj(y))
-        return out
     
     def forward_corev2(self, x: torch.Tensor, cross_selective_scan=cross_selective_scan, **kwargs):
         x_proj_weight = self.x_proj_weight
@@ -1179,7 +1022,7 @@ class VSSG(nn.Module):
         ssm_conv_bias=True,
         ssm_drop_rate=0.0, 
         ssm_init="v0",
-        forward_type="v2",
+        forward_type="v2", # "xv1", "xv2", "xv3", "xv4", "xv5", "xv6", "xv61"
         # =========================
         mlp_ratio=4.0,
         mlp_act_layer="gelu",
@@ -1197,9 +1040,6 @@ class VSSG(nn.Module):
         super().__init__()
         self.channel_first = (norm_layer.lower() in ["bn", "ln2d"])
         self.num_layers = len(depths)
-        #if isinstance(dims, int):
-        #    dims = [int(dims * 2 ** i_layer) for i_layer in range(self.num_layers)]
-        #self.num_features = dims[-1]
         self.dims = dims
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         
@@ -1384,17 +1224,17 @@ class VSSG(nn.Module):
         for layer in self.layers:
             x = layer(x)
         x = self.patch_unembed(x)
-        # additional norm layer after unembedding
-        x = nn.LayerNorm(x.shape[-2:], device='cuda')(x)
+        # additional norm layer after unembedding?
+        # x = nn.LayerNorm(x.shape[-2:], device='cuda')(x)
         return x
 
     def flops(self, x):
         shape = x.shape[1:]
         supported_ops={
-            #"aten::silu": None, # as relu is in _IGNORED_OPS
-            #"aten::neg": None, # as relu is in _IGNORED_OPS
-            #"aten::exp": None, # as relu is in _IGNORED_OPS
-            #"aten::flip": None, # as permute is in _IGNORED_OPS
+            "aten::silu": None, # as relu is in _IGNORED_OPS
+            "aten::neg": None, # as relu is in _IGNORED_OPS
+            "aten::exp": None, # as relu is in _IGNORED_OPS
+            "aten::flip": None, # as permute is in _IGNORED_OPS
             # "prim::PythonOp.CrossScan": None,
             # "prim::PythonOp.CrossMerge": None,
             "prim::PythonOp.SelectiveScanMamba": selective_scan_flop_jit,
