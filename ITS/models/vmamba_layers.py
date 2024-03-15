@@ -849,13 +849,20 @@ class VSSG(nn.Module):
     
     @staticmethod
     def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4):
-        # step = patch_size
         return nn.Sequential(
             Permute(0, 3, 1, 2),
-            nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
-            nn.Conv2d(in_chans, embed_dim, kernel_size=1, stride=1, bias=True, device='cuda', padding='same'),
-            #nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=step*2, stride=step, bias=True, device='cuda', padding=step//2),
+            nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size//2, bias=True, device='cuda', padding=1),
+            nn.Upsample(scale_factor=patch_size//2, mode='bilinear', align_corners=False),
         )
+
+    #def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4):
+    #    # step = patch_size
+    #    return nn.Sequential(
+    #        Permute(0, 3, 1, 2),
+    #        nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
+    #        nn.Conv2d(in_chans, embed_dim, kernel_size=1, stride=1, bias=True, device='cuda', padding='same'),
+    #        #nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=step*2, stride=step, bias=True, device='cuda', padding=step//2),
+    #    )
     
     @staticmethod
     def _make_downsample(dim=96, out_dim=192, norm_layer=nn.LayerNorm):
