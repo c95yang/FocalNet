@@ -48,25 +48,26 @@ class CrossScan(torch.autograd.Function):
 
         #test = torch.tensor([[[[ 1,  2,  3,  4],[ 5,  6,  7,  8],[ 9, 10, 11, 12],[13, 14, 15, 16]]]])
         #b,c,h,w=test.shape
-        #result = flip_odd_columns(x)
-        #print("Original Matrix:")
-        #print(x.squeeze())
-        #print("\nResult after flipping odd-numbered columns:")
-        #print(result.squeeze())
 
-        #t = test.new_empty((b, 4, c, h*w))
-        #t[:, 0] = flip_odd_rows(test).flatten(2, 3)
-        #t[:, 1] = flip_odd_columns(test).transpose(dim0=2, dim1=3).flatten(2, 3)
-        #t[:, 2:4] = torch.flip(t[:, 0:2], dims=[-1])
-        #print(t)
+        #ts = test.new_empty((b, 4, c, h*w))
 
-        x_rows = flip_odd_rows(x)
-        x_columns = flip_odd_columns(x)
+        #ts[:, 0] = flip_odd_rows(test).flatten(2, 3)
+        #ts[:, 1] = flip_odd_columns(test).transpose(dim0=2, dim1=3).flatten(2, 3)
+
+        #test_flipped = torch.flip(test, dims=[-2, -1])
+        #ts[:, 2] = flip_odd_rows(test_flipped).flatten(2, 3)
+        #ts[:, 3] = flip_odd_columns(test_flipped).transpose(dim0=2, dim1=3).flatten(2, 3)
+        # print(ts)
+
 
         xs = x.new_empty((B, 4, C, H * W))
-        xs[:, 0] = x_rows.flatten(2, 3)
-        xs[:, 1] = x_columns.transpose(dim0=2, dim1=3).flatten(2, 3)
-        xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
+        xs[:, 0] = flip_odd_rows(x).flatten(2, 3)
+        xs[:, 1] = flip_odd_columns(x).transpose(dim0=2, dim1=3).flatten(2, 3)
+
+        x_flipped = torch.flip(x, dims=[-2, -1])
+        xs[:, 2] = flip_odd_rows(x_flipped).flatten(2, 3)
+        xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=2, dim1=3).flatten(2, 3)
+        #print(xs[0,:,0,:])
         return xs
     
     @staticmethod
@@ -74,14 +75,21 @@ class CrossScan(torch.autograd.Function):
         # out: (b, k, d, l)
         B, C, H, W = ctx.shape
         L = H * W
-        ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, -1, L)
 
-        ys = ys.reshape(B, 2, C, H, W)
-        ys[:,0] = flip_odd_rows(ys[:,0].squeeze())
-        ys[:,1] = flip_odd_columns(ys[:,1].squeeze())
-        ys = ys.reshape(B, 2, C, L)
+        ys = ys.reshape(B, 4, C, H, W)
+        ys[:,0] = flip_odd_rows(ys[:,0])
+        ys[:,1] = flip_odd_columns(ys[:,1])
+        ys[:,2] = flip_odd_rows(ys[:,2])
+        ys[:,3] = flip_odd_columns(ys[:,3])
+        ys[:, 2:4] = ys[:, 2:4].flip(dims=[-2,-1]).view(B, 2, -1, H, W)
+        ys = ys.reshape(B, 4, C, L)
+        #print(ys[0,:,0,:])
 
-        y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, -1, L)
+        y = ys[:, 0] 
+        + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, -1, L) 
+        + ys[:, 2] 
+        + ys[:, 3].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, -1, L)
+        
         return y.view(B, -1, H, W)
 
 
@@ -90,15 +98,19 @@ class CrossMerge(torch.autograd.Function):
     def forward(ctx, ys: torch.Tensor):
         B, K, D, H, W = ys.shape #([4, 4, 192, 64, 64])
         ctx.shape = (H, W)
-        ys = ys.view(B, K, D, -1) #([4, 4, 192, 4096])
-        ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, D, -1)
 
-        ys = ys.reshape(B, 2, D, H, W)
         ys[:,0] = flip_odd_rows(ys[:,0])
         ys[:,1] = flip_odd_columns(ys[:,1])
-        ys = ys.reshape(B, 2, D, H*W)
+        ys[:,2] = flip_odd_rows(ys[:,2])
+        ys[:,3] = flip_odd_columns(ys[:,3])
+        ys[:, 2:4] = ys[:, 2:4].flip(dims=[-2,-1]).view(B, 2, D, H, W)
+        ys = ys.reshape(B, 4, D, H*W)
 
-        y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, D, -1)
+        #y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, D, -1)
+        y = ys[:, 0] 
+        + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, D, -1) 
+        + ys[:, 2] 
+        + ys[:, 3].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, D, -1)
         return y
     
     @staticmethod
@@ -108,15 +120,16 @@ class CrossMerge(torch.autograd.Function):
         H, W = ctx.shape
         B, C, L = x.shape
 
-        x_ = x.reshape(B, C, H, W)
-        x_rows = flip_odd_rows(x_)
-        x_columns = flip_odd_columns(x_)
-
+        x = x.reshape(B, C, H, W)
         xs = x.new_empty((B, 4, C, L))
 
-        xs[:, 0] = x_rows.flatten(2, 3)
-        xs[:, 1] = x_columns.transpose(dim0=2, dim1=3).flatten(2, 3)
-        xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
+        xs[:, 0] = flip_odd_rows(x).flatten(2, 3)
+        xs[:, 1] = flip_odd_columns(x).transpose(dim0=2, dim1=3).flatten(2, 3)
+
+        x_flipped = torch.flip(x, dims=[-2, -1])
+        xs[:, 2] = flip_odd_rows(x_flipped).flatten(2, 3)
+        xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=2, dim1=3).flatten(2, 3)
+
         xs = xs.view(B, 4, C, H, W)
         return xs
 
