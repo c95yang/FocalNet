@@ -25,7 +25,7 @@ def flip_odd_rows(x):
     odd_rows_flipped = torch.flip(x[:, :, 1::2, :], dims=[2, 3])
     even_rows = x[:, :, ::2, :]
     # Concatenate even rows followed by the odd rows in the original order
-    result = torch.zeros(x.shape)
+    result = torch.zeros(x.shape, device='cuda')
     result[:,:,::2, :] = even_rows  # Index every second row, starting from 0
     result[:,:,1::2, :] = torch.flip(odd_rows_flipped, dims=[2] ) # Index every second row, starting from 1 
     return result
@@ -34,7 +34,7 @@ def flip_odd_columns(x):
     even_cols_flipped = torch.flip(x[:, :, :, 1::2], dims=[2, 3])
     odd_cols = x[:, :, :, ::2]
     # Concatenate even columns followed by the odd columns in the original order
-    result = torch.zeros(x.shape)
+    result = torch.zeros(x.shape, device='cuda')
     result[:, :, :, ::2] = odd_cols # Index every second column, starting from 0
     result[:, :, :, 1::2] = torch.flip(even_cols_flipped, dims=[3]) # Index every second column, starting from 1
     return result
