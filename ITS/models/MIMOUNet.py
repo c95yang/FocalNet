@@ -11,7 +11,7 @@ class EBlock(nn.Module):
         #self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
 
         #keep default: depth [2], dim [96], mlp_ratio=4.0
-        layers = [VSSG(in_chans=out_channel, forward_type="xv6") for _ in range(num_res)]
+        layers = [VSSG(in_chans=out_channel, forward_type="v01") for _ in range(num_res)]
 
         #keep default: depth [2], dim [96]
         #layers = [VSSG(in_chans=out_channel, mlp_ratio=0, forward_type="v01") for _ in range(num_res)]
@@ -45,7 +45,7 @@ class DBlock(nn.Module):
         #self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
 
         #keep default: depth [2], dim [96], mlp_ratio=4.0
-        layers = [VSSG(in_chans=channel, forward_type="xv6") for _ in range(num_res)]
+        layers = [VSSG(in_chans=channel, forward_type="v01") for _ in range(num_res)]
 
         #keep default: depth [2], dim [96]
         #layers = [VSSG(in_chans=channel, mlp_ratio=0, forward_type="v01") for _ in range(num_res)]

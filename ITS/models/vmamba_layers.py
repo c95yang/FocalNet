@@ -19,15 +19,53 @@ try:
 except:
     from csm_triton import CrossScanTriton, CrossMergeTriton, CrossScanTriton1b1
 
+# HELP Function cross scan =============
+
+def flip_odd_rows(x):
+    odd_rows_flipped = torch.flip(x[:, :, 1::2, :], dims=[2, 3])
+    even_rows = x[:, :, ::2, :]
+    # Concatenate even rows followed by the odd rows in the original order
+    result = torch.zeros(x.shape)
+    result[:,:,::2, :] = even_rows  # Index every second row, starting from 0
+    result[:,:,1::2, :] = torch.flip(odd_rows_flipped, dims=[2] ) # Index every second row, starting from 1 
+    return result
+
+def flip_odd_columns(x):
+    even_cols_flipped = torch.flip(x[:, :, :, 1::2], dims=[2, 3])
+    odd_cols = x[:, :, :, ::2]
+    # Concatenate even columns followed by the odd columns in the original order
+    result = torch.zeros(x.shape)
+    result[:, :, :, ::2] = odd_cols # Index every second column, starting from 0
+    result[:, :, :, 1::2] = torch.flip(even_cols_flipped, dims=[3]) # Index every second column, starting from 1
+    return result
+
 # pytorch cross scan =============
 class CrossScan(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: torch.Tensor):
         B, C, H, W = x.shape
         ctx.shape = (B, C, H, W)
+
+        #test = torch.tensor([[[[ 1,  2,  3,  4],[ 5,  6,  7,  8],[ 9, 10, 11, 12],[13, 14, 15, 16]]]])
+        #b,c,h,w=test.shape
+        #result = flip_odd_columns(x)
+        #print("Original Matrix:")
+        #print(x.squeeze())
+        #print("\nResult after flipping odd-numbered columns:")
+        #print(result.squeeze())
+
+        #t = test.new_empty((b, 4, c, h*w))
+        #t[:, 0] = flip_odd_rows(test).flatten(2, 3)
+        #t[:, 1] = flip_odd_columns(test).transpose(dim0=2, dim1=3).flatten(2, 3)
+        #t[:, 2:4] = torch.flip(t[:, 0:2], dims=[-1])
+        #print(t)
+
+        x_rows = flip_odd_rows(x)
+        x_columns = flip_odd_columns(x)
+
         xs = x.new_empty((B, 4, C, H * W))
-        xs[:, 0] = x.flatten(2, 3)
-        xs[:, 1] = x.transpose(dim0=2, dim1=3).flatten(2, 3)
+        xs[:, 0] = x_rows.flatten(2, 3)
+        xs[:, 1] = x_columns.transpose(dim0=2, dim1=3).flatten(2, 3)
         xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
         return xs
     
@@ -37,6 +75,12 @@ class CrossScan(torch.autograd.Function):
         B, C, H, W = ctx.shape
         L = H * W
         ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, -1, L)
+
+        ys = ys.reshape(B, 2, C, H, W)
+        ys[:,0] = flip_odd_rows(ys[:,0].squeeze())
+        ys[:,1] = flip_odd_columns(ys[:,1].squeeze())
+        ys = ys.reshape(B, 2, C, L)
+
         y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, -1, L)
         return y.view(B, -1, H, W)
 
@@ -44,10 +88,16 @@ class CrossScan(torch.autograd.Function):
 class CrossMerge(torch.autograd.Function):
     @staticmethod
     def forward(ctx, ys: torch.Tensor):
-        B, K, D, H, W = ys.shape
+        B, K, D, H, W = ys.shape #([4, 4, 192, 64, 64])
         ctx.shape = (H, W)
-        ys = ys.view(B, K, D, -1)
+        ys = ys.view(B, K, D, -1) #([4, 4, 192, 4096])
         ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, D, -1)
+
+        ys = ys.reshape(B, 2, D, H, W)
+        ys[:,0] = flip_odd_rows(ys[:,0])
+        ys[:,1] = flip_odd_columns(ys[:,1])
+        ys = ys.reshape(B, 2, D, H*W)
+
         y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, D, -1)
         return y
     
@@ -57,9 +107,15 @@ class CrossMerge(torch.autograd.Function):
         # out: (b, k, d, l)
         H, W = ctx.shape
         B, C, L = x.shape
+
+        x_ = x.reshape(B, C, H, W)
+        x_rows = flip_odd_rows(x_)
+        x_columns = flip_odd_columns(x_)
+
         xs = x.new_empty((B, 4, C, L))
-        xs[:, 0] = x
-        xs[:, 1] = x.view(B, C, H, W).transpose(dim0=2, dim1=3).flatten(2, 3)
+
+        xs[:, 0] = x_rows.flatten(2, 3)
+        xs[:, 1] = x_columns.transpose(dim0=2, dim1=3).flatten(2, 3)
         xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
         xs = xs.view(B, 4, C, H, W)
         return xs

@@ -30,9 +30,9 @@ def main(args):
 
     #print(model)
 
-    # print('# model_parameters: %.2f M'%(sum(param.numel() for param in model.parameters())/ 1e6))
     x_fake = torch.randn(3, 256, 256)
     macs_ssm = model.flops(x_fake) / 1e9
+
     #print("number of GFLOPs: %.2f G"%(macs_ssm))
 
     # Check if parameters are on CPU or GPU
@@ -43,7 +43,6 @@ def main(args):
 
     macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
 
-    #print(f"Model FLOPs: {macs}")
     print(f"Model Parameters: {params}")
 
     macs = macs.replace('GMac', '')
