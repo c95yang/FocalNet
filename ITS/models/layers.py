@@ -29,11 +29,11 @@ class ResBlock(nn.Module):
     def __init__(self, in_channel, out_channel):
         super(ResBlock, self).__init__()
         self.main = nn.Sequential(
-            #BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
-            #BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False),
-            BasicConv_G(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
-            BasicConv_G(out_channel, out_channel, kernel_size=3, stride=1, relu=False),
-            #VSSG(in_chans=in_channel, dims=dims)
+            BasicConv(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
+            BasicConv(out_channel, out_channel, kernel_size=3, stride=1, relu=False),
+            # BasicConv_G(in_channel, out_channel, kernel_size=3, stride=1, relu=True),
+            # BasicConv_G(out_channel, out_channel, kernel_size=3, stride=1, relu=False),
+            # VSSG(in_chans=in_channel)
         )
 
     def forward(self, x):

@@ -43,11 +43,11 @@ class SS2D(nn.Module):
         dropout=0.,
         conv_bias=True,
         bias=False,
-        device=None,
+        device='cuda',
         dtype=None,
         **kwargs,
     ):
-        factory_kwargs = {"device": 'cuda', "dtype": dtype}
+        factory_kwargs = {"device": device, "dtype": dtype}
         super().__init__()
         self.d_model = d_model
         self.d_state = d_state
@@ -94,7 +94,7 @@ class SS2D(nn.Module):
         # self.selective_scan = selective_scan_fn
         self.forward_core = self.forward_corev0
 
-        self.out_norm = nn.LayerNorm(self.d_inner, device='cuda')
+        self.out_norm = nn.LayerNorm(self.d_inner, **factory_kwargs)
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
         self.dropout = nn.Dropout(dropout) if dropout > 0. else None
 
@@ -126,14 +126,14 @@ class SS2D(nn.Module):
         return dt_proj
 
     @staticmethod
-    def A_log_init(d_state, d_inner, copies=1, device=None, merge=True):
+    def A_log_init(d_state, d_inner, copies=1, device='cuda', merge=True):
         # S4D real initialization
         A = repeat(
             torch.arange(1, d_state + 1, dtype=torch.float32, device=device),
             "n -> d n",
             d=d_inner,
         ).contiguous()
-        A_log = torch.log(A)  # Keep A_log in fp32
+        A_log = torch.log(A).to('cuda')  # Keep A_log in fp32
         if copies > 1:
             A_log = repeat(A_log, "d n -> r d n", r=copies)
             if merge:
@@ -143,7 +143,7 @@ class SS2D(nn.Module):
         return A_log
 
     @staticmethod
-    def D_init(d_inner, copies=1, device=None, merge=True):
+    def D_init(d_inner, copies=1, device='cuda', merge=True):
         # D "skip" parameter
         D = torch.ones(d_inner, device=device)
         if copies > 1:
@@ -233,9 +233,9 @@ class SS2D(nn.Module):
         return out_y[:, 0], inv_y[:, 0], wh_y, invwh_y
 
     def forward(self, x, H, W, relative_pos=None):
-        x.to('cuda')
         B, N, C = x.shape
-        print('x input',x.shape)
+        print('**********************************************************************')
+        print('x input/output SS2D: ',x.shape)
         x = x.permute(0, 2, 1).reshape(B, H, W, C)
 
         B, H, W, C = x.shape
@@ -243,7 +243,7 @@ class SS2D(nn.Module):
         xz = self.in_proj(x)
         x, z = xz.chunk(2, dim=-1) # (b, h, w, d)
 
-        x = x.permute(0, 3, 1, 2).contiguous().to('cuda')
+        x = x.permute(0, 3, 1, 2).contiguous()
         x = self.act(self.conv2d(x)) # (b, d, h, w)
         y1, y2, y3, y4 = self.forward_core(x)
         assert y1.dtype == torch.float32
@@ -255,7 +255,8 @@ class SS2D(nn.Module):
         if self.dropout is not None:
             out = self.dropout(out)
         out=out.reshape(B,N,C)
-        print('x output',out.shape)
+        #print('x output',out.shape)
+        print('**********************************************************************')
         return out
 
 
@@ -268,38 +269,48 @@ class Block(nn.Module):
                  norm_layer=nn.LayerNorm, se=0, sr_ratio=1):
         super().__init__()
         self.has_inner = inner_dim > 0
+        print('enter Block-------------------------')
+        print('self.has_inner: ',self.has_inner)
+        print('outer_dim',outer_dim)
+        print('inner_dim',inner_dim)
+        # print('num_words',num_words) # always 16
         if self.has_inner:
             # Inner
-            self.inner_norm1 = norm_layer(num_words * inner_dim)
+            self.inner_norm1 = norm_layer(num_words * inner_dim, device='cuda')
 
-            self.inner_attn = SS2D(d_model=inner_dim, dropout=0, d_state=16, device='cuda')
+            self.inner_attn = SS2D(d_model=inner_dim, dropout=0, d_state=16)
 
 
-            self.proj_norm1 = norm_layer(num_words * inner_dim)
+            self.proj_norm1 = norm_layer(num_words * inner_dim, device='cuda')
             self.proj = nn.Linear(num_words * inner_dim, outer_dim, bias=False, device='cuda')
-            self.proj_norm2 = norm_layer(outer_dim)
+            self.proj_norm2 = norm_layer(outer_dim, device='cuda')
         # Outer
-        self.outer_norm1 = norm_layer(outer_dim)
+        self.outer_norm1 = norm_layer(outer_dim, device='cuda')
 
         self.outer_attn = SS2D(d_model=outer_dim, dropout=0, d_state=16)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
 
-
     def forward(self, x, outer_tokens, H_out, W_out, H_in, W_in, relative_pos):
         B, N, C = outer_tokens.size()
-        #print('outer_tokens input',outer_tokens.shape)
+        print('--------------------Enter Block forward---------------------------------')
+        # print('H_in/W_in: ',H_in) # always 4
+        print('H_out/W_out: ',H_out)
+        print('outer_tokens: ',outer_tokens.shape)
+        print('inner_tokens(x): ',x.shape)
         if self.has_inner:
-
-
             tmp=x.reshape(B, N, -1)
-            x = x + self.drop_path(self.inner_attn(self.inner_norm1(x.reshape(B, N, -1)).reshape(B*N, H_in*W_in, -1), H_in, W_in)) # B*N, k*k, c
+            #print('tmp: ',tmp.shape)
+            inner = self.inner_norm1(tmp).reshape(B*N, H_in*W_in, -1)
+            inner = self.inner_attn(inner, H_in, W_in)
+            #print('inner: ',inner.shape)
+            x = x + self.drop_path(inner) # B*N, k*k, c
             outer_tokens = outer_tokens + self.proj_norm2(self.proj(self.proj_norm1(x.reshape(B, N, -1)))) # B, N, C
-        outer_tokens = outer_tokens + self.drop_path(self.outer_attn(self.outer_norm1(outer_tokens), H_out, W_out, relative_pos))
+
+        outer = self.outer_attn(self.outer_norm1(outer_tokens), H_out, W_out, relative_pos)
+        #print('outer_tokens: ',outer_tokens.shape)
+        outer_tokens = outer_tokens + self.drop_path(outer)
         return x, outer_tokens
-
-
-
 
 
 
@@ -367,7 +378,7 @@ class PatchMerging2D_word(nn.Module):
             nn.Conv2d(dim_in, dim_out, kernel_size=2*stride-1, padding=stride-1, stride=stride, device='cuda'),
         )
 
-    def forward(self, x, H_out, W_out, H_in, W_in):#(b,h,w,c)->(b,h/2,w/2,2c)
+    def forward(self, x, H_out, W_out, H_in, W_in):
         B_N, M, C = x.shape # B*N, M, C
         x = self.norm(x)
         x = x.reshape(-1, H_out, W_out, H_in, W_in, C)
@@ -384,11 +395,10 @@ class PatchMerging2D_word(nn.Module):
             SHAPE_FIX[0] = H // 2
             SHAPE_FIX[1] = W // 2
 
-        # patch merge
-        x1 = x[:, 0::2, 0::2, :, :, :]  # B, H/2, W/2, H_in, W_in, C
-        x2 = x[:, 1::2, 0::2, :, :, :]
-        x3 = x[:, 0::2, 1::2, :, :, :]
-        x4 = x[:, 1::2, 1::2, :, :, :]
+        x0 = x[:, 0::2, 0::2, :]  # B H/2 W/2 C
+        x1 = x[:, 1::2, 0::2, :]  # B H/2 W/2 C
+        x2 = x[:, 0::2, 1::2, :]  # B H/2 W/2 C
+        x3 = x[:, 1::2, 1::2, :]  # B H/2 W/2 C
 
         if SHAPE_FIX[0] > 0:
             x0 = x0[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
@@ -396,7 +406,7 @@ class PatchMerging2D_word(nn.Module):
             x2 = x2[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x3 = x3[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
 
-        x = torch.cat([torch.cat([x1, x2], 3), torch.cat([x3, x4], 3)], 4) # B, H/2, W/2, 2*H_in, 2*W_in, C
+        x = torch.cat([torch.cat([x0, x1], 3), torch.cat([x2, x3], 3)], 4) # B, H/2, W/2, 2*H_in, 2*W_in, C
         x = x.reshape(-1, 2*H_in, 2*W_in, C).permute(0, 3, 1, 2) # B_N/4, C, 2*H_in, 2*W_in
         x = self.conv(x)  # B_N/4, C, H_in, W_in
         x = x.reshape(-1, self.dim_out, M).transpose(1, 2)
@@ -408,7 +418,7 @@ class PatchMerging2D_word(nn.Module):
 
 class Stem(nn.Module):
 
-    def __init__(self, img_size=224, in_chans=3, outer_dim=768, inner_dim=24):
+    def __init__(self, img_size=224, in_chans=3, outer_dim=768, inner_dim=24): # outer_dim=16, inner_dim=4
         super().__init__()
         img_size = to_2tuple(img_size)
         self.img_size = img_size
@@ -439,19 +449,28 @@ class Stem(nn.Module):
         )
         self.unfold = nn.Unfold(kernel_size=1, padding=0, stride=1)# Every visual word at the stem stage corresponds to 2x2 pixel area of the original image
     def forward(self, x):
-        x = x.to('cuda')
-        print(x.is_cuda)
         B, C, H, W = x.shape
+        print('STEM-------------------------')
+        print('x input stem: ',x.shape) #([5, 3, 512, 512])
+
         x = self.common_conv(x)     
         H_out, W_out = H // 8, W // 8  # Each visual sentence corresponds to 8x8 pixel area of the original image
         H_in, W_in = 4, 4 # Every visual sentence is composed of 4x4 visual words
         # inner_tokens
         inner_tokens = self.inner_convs(x) # B, C, H, W
+        print('inner_tokens: ',inner_tokens.shape) #([5, 4, 256, 256]) 
         inner_tokens = self.unfold(inner_tokens).transpose(1, 2) # B, N, Ck2
+        print('inner_tokens: ',inner_tokens.shape) #([5, 65536, 4]) 
         inner_tokens = inner_tokens.reshape(B * H_out * W_out, self.inner_dim, H_in*W_in).transpose(1, 2) # B*N, C, 4*4
+        print('inner_tokens: ',inner_tokens.shape) #([20480, 16, 4]) #1/3 input
         # outer_tokens
         outer_tokens = self.outer_convs(x) # B, C, H_out, W_out
+        print('outer_tokens: ',outer_tokens.shape) #([5, 16, 64, 64])
         outer_tokens = outer_tokens.permute(0, 2, 3, 1).reshape(B, H_out * W_out, -1)
+        print('outer_tokens: ',outer_tokens.shape) #([5, 4096, 16])  #1/15 input
+        #print('H_out/W_out: ',H_out) #64 #Sentence
+        #print('H_in/W_in: ',H_in) #4 #Word
+        print('STEM-------------------------')
         return inner_tokens, outer_tokens, (H_out, W_out), (H_in, W_in)
 
 class Stage(nn.Module):
@@ -500,7 +519,7 @@ class UpsampleBlock(nn.Module):
         self.gelu1 = nn.GELU()
         # 步长为1的3x3卷积
         self.conv = nn.Conv2d(
-            out_channels, out_channels, kernel_size=3, stride=1, padding=1
+            out_channels, out_channels, kernel_size=3, stride=1, padding=1, device='cuda'
         )
         # 另一个批量归一化
         self.batch_norm2 = nn.BatchNorm2d(out_channels, device='cuda')
@@ -527,10 +546,10 @@ class PyramidMiM_enc(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         depths = [2, 4, 9, 2]
-        outer_dims = [16, 16*2, 16*4, 16*8]
-        inner_dims = [4, 4*2, 4*4, 4*8]#  original mim-istd
-        outer_heads = [2, 2*2, 2*4, 2*8]
-        inner_heads = [1, 1*2, 1*4, 1*8]
+        outer_dims = [16, 16*2, 16*4, 16*8] # 16, 32, 64, 128
+        inner_dims = [4, 4*2, 4*4, 4*8]#  original mim-istd 4, 8, 16, 32
+        outer_heads = [2, 2*2, 2*4, 2*8] # 2, 4, 8, 16
+        inner_heads = [1, 1*2, 1*4, 1*8] #1, 2, 4, 8
         sr_ratios = [4, 2, 1, 1]
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))] 
         self.num_features = outer_dims[-1]     
@@ -547,7 +566,7 @@ class PyramidMiM_enc(nn.Module):
         self.stages = nn.ModuleList([])
         for i in range(4):
             if i > 0:
-                self.word_merges.append(PatchMerging2D_word(inner_dims[i-1], inner_dims[i], stride=2))
+                self.word_merges.append(PatchMerging2D_word(inner_dims[i-1], inner_dims[i]))
                 self.sentence_merges.append(PatchMerging2D_sentence(outer_dims[i-1]))
             self.stages.append(Stage(depths[i], outer_dim=outer_dims[i], inner_dim=inner_dims[i],
                         outer_head=outer_heads[i], inner_head=inner_heads[i],
@@ -557,7 +576,7 @@ class PyramidMiM_enc(nn.Module):
             )
             depth += depths[i]
         
-        self.norm = norm_layer(outer_dims[-1])
+        self.norm = norm_layer(outer_dims[-1], device='cuda')
 
         self.up_blocks = nn.ModuleList([])
         for i in range(4):
@@ -589,7 +608,7 @@ class PyramidMiM_enc(nn.Module):
 
     def reset_classifier(self, num_classes, global_pool=''):
         self.num_classes = num_classes
-        self.head = nn.Linear(self.num_features, num_classes, device='cuda') if num_classes > 0 else nn.Identity()
+        self.head = nn.Linear(self.num_features, num_classes, dtype='cuda') if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x):
         size = x.size()[2:]
@@ -635,13 +654,17 @@ class ResidualBlock(nn.Module):
 
 
     def forward(self, x):
+        #print("ResidualBlock before: ", x.shape)
         residual = x
         x = self.body(x)
 
         if self.downsample:
+            print("Residual downsample")
             residual = self.downsample(residual)
+            print(residual.shape)
 
         out = F.relu(x+residual, True)
+        #print("ResidualBlock after: ", out.shape)
         return out
 
 class _FCNHead(nn.Module):
@@ -663,38 +686,40 @@ class PatchExpand2D(nn.Module):
     def __init__(self, dim, dim_scale=2, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim*2
-        self.dim_scale = dim_scale
-        self.expand = nn.Linear(self.dim, dim_scale*self.dim, bias=False, device='cuda')
-        self.norm = norm_layer(self.dim // dim_scale, device='cuda')
+        self.expand = nn.Linear(self.dim, 2*self.dim, bias=False, device='cuda')
+        self.norm = norm_layer(self.dim // 2, device='cuda')
 
-    def forward(self, x):#(b,h,w,c)->(b,h,w,2c)->(b,2h,2w,c/2)
+    def forward(self, x):#(b,c,h,w)->(b,h,w,c)->(b,h,w,2c)->(b,2h,2w,c/2)->(b,c/2,2h,2w)
         x=x.permute(0,2,3,1)
         B, H, W, C = x.shape
         x = self.expand(x)
 
-        x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=self.dim_scale, p2=self.dim_scale, c=C//self.dim_scale)
+        x = rearrange(x, 'b h w (p1 p2 c)-> b (h p1) (w p2) c', p1=2, p2=2, c=C//2)
         x= self.norm(x).permute(0,3,1,2)
-
         return x
 
 
-class MiM(nn.Module): 
+class MiM(nn.Module): #MiM([2]*3,[8, 16, 32, 64, 128])
     def __init__(self, layer_blocks, channels):
         super(MiM, self).__init__()
+        #print("MiM layer_blocks: ", layer_blocks, ", MiM channels: ", channels) #MiM layer_blocks:  [2, 2, 2] , MiM channels:  [8, 16, 32, 64, 128]
 
-        self.deconv3 = PatchExpand2D(channels[4]//2)
+        self.deconv3 = PatchExpand2D(channels[4]//2) #PatchExpand2D(64)   [5, 128, 16, 16] -> [5, 64, 32, 32]
         #self.deconv3 = nn.ConvTranspose2d(channels[4], channels[3], 4, 2, 1)  
         self.uplayer3 = self._make_layer(block=ResidualBlock, block_num=layer_blocks[2],
                                          in_channels=channels[3], out_channels=channels[3], stride=1)   
-        self.deconv2 = PatchExpand2D(channels[3]//2)
+        
+        self.deconv2 = PatchExpand2D(channels[3]//2) #PatchExpand2D(32)   [5, 64, 32, 32] -> [5, 32, 64, 64]
         #self.deconv2 = nn.ConvTranspose2d(channels[3], channels[2], 4, 2, 1)
         self.uplayer2 = self._make_layer(block=ResidualBlock, block_num=layer_blocks[1],
                                          in_channels=channels[2], out_channels=channels[2], stride=1)
-        self.deconv1 = PatchExpand2D(channels[2]//2)
+        
+        self.deconv1 = PatchExpand2D(channels[2]//2) #PatchExpand2D(16)   [5, 32, 64, 64] -> [5, 16, 128, 128]
         #self.deconv1 = nn.ConvTranspose2d(channels[2], channels[1], 4, 2, 1)
         self.uplayer1 = self._make_layer(block=ResidualBlock, block_num=layer_blocks[0],
                                          in_channels=channels[1], out_channels=channels[1], stride=1)
-        self.head = _FCNHead(channels[1], 1)
+        
+        self.head = _FCNHead(channels[1], 1) # _FCNHead(16, 1)
         #####################
         self.mim_backbone = PyramidMiM_enc()
 
@@ -702,7 +727,8 @@ class MiM(nn.Module):
         _, _, hei, wid = x.shape
         
         outputs=self.mim_backbone(x)
-        t1,t2,t3,t4=outputs[0],outputs[1],outputs[2],outputs[3]
+        t1,t2,t3,t4=outputs[0],outputs[1],outputs[2],outputs[3] #[5, 16, 128, 128] [5, 32, 64, 64] [5, 64, 32, 32] [5, 128, 16, 16])
+        #print('outputs: ', t1.shape, t2.shape, t3.shape, t4.shape)
 
         deconc3 = self.deconv3(t4)
         fusec3 = deconc3+t3
@@ -734,9 +760,11 @@ class MiM(nn.Module):
 
 
 if __name__ == '__main__':
-    input_ = torch.Tensor(5, 3, 256, 256).to('cuda')
+    #input_ = torch.Tensor(5, 3, 256, 256).to('cuda')
+    input_ = torch.Tensor(5, 3, 512, 512).to('cuda')
     net = MiM([2]*3,[8, 16, 32, 64, 128])
     out=net(input_)
+    #print(out.shape) #torch.Size([5, 1, 512, 512])
 
 
 

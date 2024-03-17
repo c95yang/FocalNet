@@ -30,24 +30,24 @@ def main(args):
 
     #print(model)
 
-    x_fake = torch.randn(3, 256, 256)
-    macs_ssm = model.flops(x_fake) / 1e9
+    #x_fake = torch.randn(3, 256, 256)
+    #macs_ssm = model.flops(x_fake) / 1e9
 
     #print("number of GFLOPs: %.2f G"%(macs_ssm))
 
     # Check if parameters are on CPU or GPU
-    #for name, param in model.named_parameters():
+    for name, param in model.named_parameters():
         #print(f"Parameter {name} is on device: {param.device}")
-    #    if param.device.type == 'cpu':
-    #        print(f"Parameter {name} is on device: {param.device}")
+        if param.device.type == 'cpu':
+            print(f"Parameter {name} is on device: {param.device}")
 
-    macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
+    #macs, params = get_model_complexity_info(model, (3,256,256), as_strings=True, print_per_layer_stat=True, verbose=True)
 
-    print(f"Model Parameters: {params}")
+    #print(f"Model Parameters: {params}")
 
-    macs = macs.replace('GMac', '')
-    macs_float = float(macs)
-    print(f"Model FLOPs: {macs} GFLOPs, VSSG FLOPs: {macs_ssm:.2f} GFLOPs. Total: {macs_float + macs_ssm:.2f} GFLOPs")
+    #macs = macs.replace('GMac', '')
+    #macs_float = float(macs)
+    #print(f"Model FLOPs: {macs} GFLOPs, VSSG FLOPs: {macs_ssm:.2f} GFLOPs. Total: {macs_float + macs_ssm:.2f} GFLOPs")
             
 #    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
 #    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.
