@@ -81,10 +81,10 @@ class CrossScan(torch.autograd.Function):
         #print(ys.shape)
 
         y = ys.new_empty((B, 4, C, H*W))
-        y[:,0] = flip_odd_rows(ys[:,0]).flatten(-2, -1)
-        y[:,1] = flip_odd_columns(ys[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1)
-        y[:,2] = flip_odd_rows(ys[:,2]).flatten(-2, -1).flip(-1)
-        y[:,3] = flip_odd_rows(ys[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1)
+        y[:,0] = flip_odd_rows(ys[:,0]).flatten(-2, -1).contiguous()
+        y[:,1] = flip_odd_columns(ys[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
+        y[:,2] = flip_odd_rows(ys[:,2]).flatten(-2, -1).flip(-1).contiguous()
+        y[:,3] = flip_odd_rows(ys[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
 
         y = y[:,0] + y[:,1] + + y[:,2] + y[:,3]
         return y.view(B, C, H, W)
@@ -108,6 +108,7 @@ class CrossMerge(torch.autograd.Function):
         # ts[:,1] = flip_odd_columns(test[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
         # ts[:,2] = flip_odd_rows(test[:,2]).flatten(-2, -1).flip(-1).contiguous()
         # ts[:,3] = flip_odd_rows(test[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
+
         # print(ts)
         # print(ts.shape)
 
@@ -117,9 +118,10 @@ class CrossMerge(torch.autograd.Function):
         y[:,2] = flip_odd_rows(ys[:,2]).flatten(-2, -1).flip(-1).contiguous()
         y[:,3] = flip_odd_rows(ys[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
         #print(y.shape)
-        y = y[:,0] + y[:,1] + + y[:,2] + y[:,3]
+        y = y[:,0] + y[:,1] + y[:,2] + y[:,3]
+        
 
-        #print("crossmerge out", y.shape)
+        # print("crossmerge out", y.shape)
         return y
     
     @staticmethod
@@ -129,17 +131,21 @@ class CrossMerge(torch.autograd.Function):
         H, W = ctx.shape
         B, C, L = x.shape
 
-        x = x.reshape(B, C, H, W)
-        xs = x.new_empty((B, 4, C, L))
+        # x = torch.tensor([[[ 1,  2,  3,  4, 5,  6,  7,  8, 9, 10, 11, 12, 13, 14, 15, 16]]])
+        # H, W = 4, 4
+        # B, C, L = x.shape
 
-        xs[:, 0] = flip_odd_rows(x).flatten(-2, -1).contiguous()
-        xs[:, 1] = flip_odd_columns(x).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
+
+        x = x.reshape(B, C, H, W)
+        xs = x.new_empty((B, 4, C, H, W))
+
+        xs[:, 0] = flip_odd_rows(x).flatten(-2, -1).contiguous().reshape(B, C, H, W)
+        xs[:, 1] = flip_odd_columns(x).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous().reshape(B, C, H, W)
 
         x_flipped = torch.flip(x, dims=[-2, -1])
-        xs[:, 2] = flip_odd_rows(x_flipped).flatten(-2, -1).contiguous()
-        xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-
-        xs = xs.view(B, 4, C, H, W)
+        xs[:, 2] = flip_odd_rows(x_flipped).flatten(-2, -1).contiguous().reshape(B, C, H, W)
+        xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous().reshape(B, C, H, W)
+        # print(xs)
         return xs
 
 # import selective scan ==============================
