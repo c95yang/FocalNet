@@ -33,11 +33,7 @@ def main(args):
     x_fake = torch.randn(3, 256, 256)
     macs_ssm = model.flops(x_fake) / 1e9
 
-    #print("number of GFLOPs: %.2f G"%(macs_ssm))
-
-    # Check if parameters are on CPU or GPU
     for name, param in model.named_parameters():
-        #print(f"Parameter {name} is on device: {param.device}")
         if param.device.type == 'cpu':
             print(f"Parameter {name} is on device: {param.device}")
 
@@ -84,7 +80,7 @@ if __name__ == '__main__':
     parser.add_argument('--print_freq', type=int, default=100)
     parser.add_argument('--num_worker', type=int, default=8)
     parser.add_argument('--save_freq', type=int, default=10)
-    parser.add_argument('--valid_freq', type=int, default=10)
+    parser.add_argument('--valid_freq', type=int, default=1)
     parser.add_argument('--resume', type=str, default='')
     parser.add_argument('--gamma', type=float, default=0.5)
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
