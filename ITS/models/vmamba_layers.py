@@ -106,7 +106,6 @@ class CrossScanSnake(torch.autograd.Function):
         # ts[:, 2] = flip_odd_rows(test_flipped).flatten(2, 3)
         # ts[:, 3] = flip_odd_columns(test_flipped).transpose(dim0=2, dim1=3).flatten(2, 3)
 
-
         xs = x.new_empty((B, 4, C, H * W))
         xs[:, 0] = flip_odd_rows(x).flatten(-2, -1).contiguous()
         xs[:, 1] = flip_odd_columns(x).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
@@ -314,7 +313,6 @@ def cross_selective_scan(
     delta_softplus = True,
     out_norm: torch.nn.Module=None,
     out_norm_shape="v0",
-    channel_first=False,
     # ==============================
     to_dtype=True, # True: final out to dtype
     force_fp32=False, # True: input fp32
@@ -396,15 +394,6 @@ def cross_selective_scan(
     ).view(B, K, -1, H, W)
     
     y: torch.Tensor = CrossMerge.apply(ys)
-
-    if channel_first:
-        y = y.view(B, -1, H, W)
-        if out_norm_shape in ["v1"]:
-            y = out_norm(y)
-        else:
-            y = out_norm(y.permute(0, 2, 3, 1))
-            y = y.permute(0, 3, 1, 2)
-        return (y.to(x.dtype) if to_dtype else y)
 
     if out_norm_shape in ["v1"]: # (B, C, H, W)
         y = out_norm(y.view(B, -1, H, W)).permute(0, 2, 3, 1) # (B, H, W, C)
@@ -499,7 +488,6 @@ class Mlp(nn.Module):
 class gMlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.,channels_first=False):
         super().__init__()
-        self.channel_first = channels_first
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
 
@@ -511,7 +499,7 @@ class gMlp(nn.Module):
 
     def forward(self, x: torch.Tensor):
         x = self.fc1(x)
-        x, z = x.chunk(2, dim=(1 if self.channel_first else -1))
+        x, z = x.chunk(2, dim=-1)
         x = self.fc2(self.drop(x) * self.act(z))
         x = self.drop(x)
         return x
@@ -542,7 +530,6 @@ class SS2D(nn.Module):
         initialize="v0",
         # ======================
         forward_type="v2",
-        channel_first=False,
         # ======================
         **kwargs,
     ):
@@ -550,7 +537,7 @@ class SS2D(nn.Module):
             d_model=d_model, d_state=d_state, ssm_ratio=ssm_ratio, dt_rank=dt_rank,
             act_layer=act_layer, d_conv=d_conv, conv_bias=conv_bias, dropout=dropout, bias=bias,
             dt_min=dt_min, dt_max=dt_max, dt_init=dt_init, dt_scale=dt_scale, dt_init_floor=dt_init_floor,
-            initialize=initialize, forward_type=forward_type, channel_first=channel_first,
+            initialize=initialize, forward_type=forward_type,
         )
 
         self.__initv2__(**kwargs)
@@ -578,7 +565,6 @@ class SS2D(nn.Module):
         initialize="v0",
         # ======================
         forward_type="v2",
-        channel_first=False,
         # ======================
         **kwargs,    
     ):
@@ -587,8 +573,7 @@ class SS2D(nn.Module):
         d_inner = int(ssm_ratio * d_model)
         dt_rank = math.ceil(d_model / 16) if dt_rank == "auto" else dt_rank
         self.d_conv = d_conv
-        self.channel_first = channel_first
-        Linear = Linear2d if channel_first else nn.Linear
+        Linear = nn.Linear
         self.forward = self.forwardv2
 
         # tags for forward_type ==============================
@@ -620,8 +605,6 @@ class SS2D(nn.Module):
         elif forward_type[-len("sigmoid"):] == "sigmoid":
             forward_type = forward_type[:-len("sigmoid")]
             self.out_norm = nn.Sigmoid()
-        elif channel_first:
-            self.out_norm = LayerNorm2d(d_inner, device='cuda')
         else:
             self.out_norm_shape = "v0"
             self.out_norm = nn.LayerNorm(d_inner, device='cuda')
@@ -762,7 +745,6 @@ class SS2D(nn.Module):
             x, x_proj_weight, None, dt_projs_weight, dt_projs_bias,
             A_logs, Ds, delta_softplus=True,
             out_norm=out_norm,
-            channel_first=self.channel_first,
             out_norm_shape=out_norm_shape,
             **kwargs,
         )
@@ -771,12 +753,12 @@ class SS2D(nn.Module):
         with_dconv = (self.d_conv > 1)
         x = self.in_proj(x)
         if not self.disable_z:
-            x, z = x.chunk(2, dim=(1 if self.channel_first else -1)) # (b, h, w, d)
+            x, z = x.chunk(2, dim=-1) # (b, h, w, d)
             if not self.disable_z_act:
                 z = self.act(z)
         
-        if not self.channel_first:
-            x = x.permute(0, 3, 1, 2).contiguous()
+
+        x = x.permute(0, 3, 1, 2).contiguous()
         if with_dconv:
             x = self.conv2d(x) # (b, d, h, w)
         x = self.act(x)
@@ -794,7 +776,6 @@ class VSSBlock(nn.Module):
         hidden_dim: int = 0,
         drop_path: float = 0,
         norm_layer: nn.Module = nn.LayerNorm,
-        channel_first=False,
         # =============================
         ssm_d_state: int = 16,
         ssm_ratio=2.0,
@@ -843,7 +824,6 @@ class VSSBlock(nn.Module):
                 initialize=ssm_init,
                 # ==========================
                 forward_type=forward_type,
-                channel_first=channel_first,
             )
         
         self.drop_path = DropPath(drop_path)
@@ -851,7 +831,7 @@ class VSSBlock(nn.Module):
         if self.mlp_branch:
             self.norm2 = norm_layer(hidden_dim, device='cuda')
             mlp_hidden_dim = int(hidden_dim * mlp_ratio)
-            self.mlp = Mlp(in_features=hidden_dim, hidden_features=mlp_hidden_dim, act_layer=mlp_act_layer, drop=mlp_drop_rate, channels_first=channel_first)
+            self.mlp = Mlp(in_features=hidden_dim, hidden_features=mlp_hidden_dim, act_layer=mlp_act_layer, drop=mlp_drop_rate)
 
     def _forward(self, input: torch.Tensor):
             if self.ssm_branch:
@@ -907,7 +887,6 @@ class VSSG(nn.Module):
         **kwargs,
     ):
         super().__init__()
-        self.channel_first = (norm_layer.lower() in ["bn", "ln2d"])
         self.num_layers = len(depths)
         self.dims = dims
         self.a = nn.Parameter(torch.ones(1,1,dims[0], device='cuda'))
@@ -950,7 +929,6 @@ class VSSG(nn.Module):
                 use_checkpoint=use_checkpoint,
                 norm_layer=norm_layer,
                 downsample=nn.Identity(),
-                channel_first=self.channel_first,
                 # =================
                 ssm_d_state=ssm_d_state,
                 ssm_ratio=ssm_ratio,
@@ -979,18 +957,18 @@ class VSSG(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     @staticmethod
-    def _make_patch_embed(in_chans=3, embed_dim=96, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm, channel_first=False):
+    def _make_patch_embed(in_chans=3, embed_dim=96, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
         return nn.Sequential(
             nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda'),
             #nn.MaxPool2d(kernel_size=patch_size, stride=patch_size),
-            (nn.Identity() if channel_first else Permute(0, 2, 3, 1)),
+            Permute(0, 2, 3, 1),
             (norm_layer(embed_dim, device='cuda') if patch_norm else nn.Identity())
         )
     
     @staticmethod
-    def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4, channel_first=False): 
+    def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4): 
         return nn.Sequential(
-            (nn.Identity() if channel_first else Permute(0, 3, 1, 2)),
+            Permute(0, 3, 1, 2),
             nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size//2, bias=True, device='cuda', padding=1),
             nn.Upsample(scale_factor=patch_size//2, mode='bilinear', align_corners=False),
         )
@@ -999,9 +977,8 @@ class VSSG(nn.Module):
         #print("x.shape: ", x.shape) #([4, 32, 256, 256])
 
         x_global = self.patch_embed(x) # bigger conv kernel, resulting in smaller feature map ([4, 64, 64, 96])
-        #print("x_global.shape: ",x_global.shape)
-
         x_local = self.patch_embed_half(x) # smaller conv kernel, resulting in bigger feature map ([4, 128, 128, 96])
+        #print("x_global.shape: ",x_global.shape)
         #print("x_local.shape: ", x_local.shape)
 
         for i, layer in enumerate(self.layers):
@@ -1045,8 +1022,6 @@ class VSSG(nn.Module):
         del model, input
         return sum(Gflops.values()) * 1e9
         return f"params {params} GFLOPs {sum(Gflops.values())}"
-    
-
 
 class GlobalLocalScan(nn.Module):
     def __init__(            
@@ -1056,7 +1031,6 @@ class GlobalLocalScan(nn.Module):
             use_checkpoint=False, 
             norm_layer=nn.LayerNorm,
             downsample=nn.Identity(),
-            channel_first=False,
             # ===========================
             ssm_d_state=16,
             ssm_ratio=2.0,
@@ -1081,7 +1055,6 @@ class GlobalLocalScan(nn.Module):
                 hidden_dim=dim, 
                 drop_path=drop_path[d],
                 norm_layer=norm_layer,
-                channel_first=channel_first,
                 ssm_d_state=ssm_d_state,
                 ssm_ratio=ssm_ratio,
                 ssm_dt_rank=ssm_dt_rank,
@@ -1103,7 +1076,6 @@ class GlobalLocalScan(nn.Module):
                 hidden_dim=dim, 
                 drop_path=drop_path[d],
                 norm_layer=norm_layer,
-                channel_first=channel_first,
                 ssm_d_state=ssm_d_state,
                 ssm_ratio=ssm_ratio,
                 ssm_dt_rank=ssm_dt_rank,
