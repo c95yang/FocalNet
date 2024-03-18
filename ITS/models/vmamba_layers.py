@@ -1,8 +1,10 @@
 import math
 import copy
+import os
 from functools import partial
 from typing import Optional, Callable, Any
 from collections import OrderedDict
+from torchvision.transforms import functional as FT
 
 import torch
 import torch.nn as nn
@@ -18,6 +20,52 @@ try:
     from .csm_triton import CrossScanTriton, CrossMergeTriton, CrossScanTriton1b1
 except:
     from csm_triton import CrossScanTriton, CrossMergeTriton, CrossScanTriton1b1
+
+
+# pytorch cross scan =============
+class CrossScan(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: torch.Tensor):
+        B, C, H, W = x.shape
+        ctx.shape = (B, C, H, W)
+        xs = x.new_empty((B, 4, C, H * W))
+        xs[:, 0] = x.flatten(2, 3)
+        xs[:, 1] = x.transpose(dim0=2, dim1=3).flatten(2, 3)
+        xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
+        return xs
+    
+    @staticmethod
+    def backward(ctx, ys: torch.Tensor):
+        # out: (b, k, d, l)
+        B, C, H, W = ctx.shape
+        L = H * W
+        ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, -1, L)
+        y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, -1, L)
+        return y.view(B, -1, H, W)
+
+
+class CrossMerge(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ys: torch.Tensor):
+        B, K, D, H, W = ys.shape
+        ctx.shape = (H, W)
+        ys = ys.view(B, K, D, -1)
+        ys = ys[:, 0:2] + ys[:, 2:4].flip(dims=[-1]).view(B, 2, D, -1)
+        y = ys[:, 0] + ys[:, 1].view(B, -1, W, H).transpose(dim0=2, dim1=3).contiguous().view(B, D, -1)
+        return y
+    
+    @staticmethod
+    def backward(ctx, x: torch.Tensor):
+        # B, D, L = x.shape
+        # out: (b, k, d, l)
+        H, W = ctx.shape
+        B, C, L = x.shape
+        xs = x.new_empty((B, 4, C, L))
+        xs[:, 0] = x
+        xs[:, 1] = x.view(B, C, H, W).transpose(dim0=2, dim1=3).flatten(2, 3)
+        xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
+        xs = xs.view(B, 4, C, H, W)
+        return xs
 
 # HELP Function cross scan =============
 
@@ -39,13 +87,12 @@ def flip_odd_columns(x):
     result[:, :, :, 1::2] = torch.flip(even_cols_flipped, dims=[3]) # Index every second column, starting from 1
     return result
 
-# pytorch cross scan =============
-class CrossScan(torch.autograd.Function):
+# pytorch cross scan snake=============
+class CrossScanSnake(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: torch.Tensor):
         B, C, H, W = x.shape
         ctx.shape = (B, C, H, W)
-        #print("crossscan in", x.shape)
 
         # test = torch.tensor([[[[ 1,  2,  3,  4],[ 5,  6,  7,  8],[ 9, 10, 11, 12],[13, 14, 15, 16]]]])
         # b,c,h,w=test.shape
@@ -58,7 +105,6 @@ class CrossScan(torch.autograd.Function):
         # test_flipped = torch.flip(test, dims=[-2, -1])
         # ts[:, 2] = flip_odd_rows(test_flipped).flatten(2, 3)
         # ts[:, 3] = flip_odd_columns(test_flipped).transpose(dim0=2, dim1=3).flatten(2, 3)
-        # print(ts)
 
 
         xs = x.new_empty((B, 4, C, H * W))
@@ -68,18 +114,14 @@ class CrossScan(torch.autograd.Function):
         x_flipped = torch.flip(x, dims=[-2, -1])
         xs[:, 2] = flip_odd_rows(x_flipped).flatten(-2, -1).contiguous()
         xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-        #print(xs[0,:,0,:])
-        #print("crossscan out", x.shape)
+
         return xs
     
     @staticmethod
     def backward(ctx, ys: torch.Tensor):
         # out: (b, k, d, l)
         B, C, H, W = ctx.shape
-        #print("crossscan backward in", ys.shape)
         ys = ys.view(B, 4, C, H, W)
-        #print(ys.shape)
-
         y = ys.new_empty((B, 4, C, H*W))
         y[:,0] = flip_odd_rows(ys[:,0]).flatten(-2, -1).contiguous()
         y[:,1] = flip_odd_columns(ys[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
@@ -90,12 +132,11 @@ class CrossScan(torch.autograd.Function):
         return y.view(B, C, H, W)
 
 
-class CrossMerge(torch.autograd.Function):
+class CrossMergeSnake(torch.autograd.Function):
     @staticmethod
     def forward(ctx, ys: torch.Tensor):
         B, K, D, H, W = ys.shape #([4, 4, 192, 64, 64])
         ctx.shape = (H, W)
-        #print("crossmerge in", ys.shape)
 
         # test = torch.tensor([[[1,  2,  3,  4,  8,  7,  6,  5, 9, 10, 11, 12, 16, 15, 14, 13]],
         #                     [[ 1,  5,  9, 13, 14, 10,  6,  2,  3,  7, 11, 15, 16, 12,  8,  4]],
@@ -109,19 +150,12 @@ class CrossMerge(torch.autograd.Function):
         # ts[:,2] = flip_odd_rows(test[:,2]).flatten(-2, -1).flip(-1).contiguous()
         # ts[:,3] = flip_odd_rows(test[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
 
-        # print(ts)
-        # print(ts.shape)
-
         y = ys.new_empty((B, K, D, H*W))
         y[:,0] = flip_odd_rows(ys[:,0]).flatten(-2, -1).contiguous()
         y[:,1] = flip_odd_columns(ys[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
         y[:,2] = flip_odd_rows(ys[:,2]).flatten(-2, -1).flip(-1).contiguous()
         y[:,3] = flip_odd_rows(ys[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-        #print(y.shape)
         y = y[:,0] + y[:,1] + y[:,2] + y[:,3]
-        
-
-        # print("crossmerge out", y.shape)
         return y
     
     @staticmethod
@@ -130,11 +164,6 @@ class CrossMerge(torch.autograd.Function):
         # out: (b, k, d, l)
         H, W = ctx.shape
         B, C, L = x.shape
-
-        # x = torch.tensor([[[ 1,  2,  3,  4, 5,  6,  7,  8, 9, 10, 11, 12, 13, 14, 15, 16]]])
-        # H, W = 4, 4
-        # B, C, L = x.shape
-
 
         x = x.reshape(B, C, H, W)
         xs = x.new_empty((B, 4, C, H, W))
@@ -145,7 +174,6 @@ class CrossMerge(torch.autograd.Function):
         x_flipped = torch.flip(x, dims=[-2, -1])
         xs[:, 2] = flip_odd_rows(x_flipped).flatten(-2, -1).contiguous().reshape(B, C, H, W)
         xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous().reshape(B, C, H, W)
-        # print(xs)
         return xs
 
 # import selective scan ==============================
