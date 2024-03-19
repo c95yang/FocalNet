@@ -44,13 +44,7 @@ def main(args):
     macs = macs.replace('GMac', '')
     macs_float = float(macs)
     print(f"Model FLOPs: {macs} GFLOPs, VSSG FLOPs: {macs_ssm:.2f} GFLOPs. Total: {macs_float + macs_ssm:.2f} GFLOPs")
-            
-#    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-#    para_num = sum([np.prod(p.size()) for p in model.parameters()]) / 1000000.
-#    para_num = sum(p.numel() for p in model.parameters()) / 1000000.
-#    print('total parameters is %.2fM' % (para_num))
-    # original = 6.81M
-    # filter with num of resblocks unchanged = 7.10
+        
     model.cuda()
     if args.mode == 'train':
         _train(model, args)
@@ -67,9 +61,8 @@ if __name__ == '__main__':
 
     # Directories
     parser.add_argument('--model_name', default='MIMO-UNet', choices=['MIMO-UNet', 'MIMO-UNetPlus'], type=str)
-    # parser.add_argument('--data_dir', type=str, default='/home1/cyn/mimo/dataset/RealBlur/Realblur-R')
-   # parser.add_argument('--data_dir', type=str, default='dataset/GOPRO')
-#    parser.add_argument('--data_dir', type=str, default='/share/home/liujie/taoyi/dataset/RSBlur')
+#    parser.add_argument('--data_dir', type=str, default='/data/ir_datasets/reside-indoor')
+#    parser.add_argument('--data_dir', type=str, default='/mnt/nvme0n1/cyn/datasets/its/reside-indoor')
     parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
     parser.add_argument('--data_dir', type=str, default='/home/cc/Documents/data/reside-indoor')
     # Train
