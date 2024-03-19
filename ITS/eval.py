@@ -20,7 +20,7 @@ def _eval(model, args):
     torch.cuda.empty_cache()
     adder = Adder()
     model.eval()
-    factor = 4
+    factor = 32
     with torch.no_grad():
         psnr_adder = Adder()
         ssim_adder = Adder()
@@ -37,7 +37,7 @@ def _eval(model, args):
             input_img = f.pad(input_img, (0, padw, 0, padh), 'reflect')
 
             tm = time.time()
-
+            
             pred = model(input_img)[2]
             pred = pred[:,:,:h,:w]
 

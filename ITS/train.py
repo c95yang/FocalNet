@@ -114,15 +114,15 @@ def _train(model, args):
                     'optimizer': optimizer.state_dict(),
                     'epoch': epoch_idx}, overwrite_name)
 
-        #if epoch_idx % args.save_freq == 0:
-        #    save_name = os.path.join(args.model_save_dir, 'model_%d.pkl' % epoch_idx)
-        #    torch.save({'model': model.state_dict()}, save_name)
+        if epoch_idx % args.save_freq == 0:
+           save_name = os.path.join(args.model_save_dir, 'model_%d.pkl' % epoch_idx)
+           torch.save({'model': model.state_dict()}, save_name)
         print("EPOCH: %02d\nElapsed time: %4.2f Epoch Pixel Loss: %7.4f Epoch FFT Loss: %7.4f" % (
             epoch_idx, epoch_timer.toc(), epoch_pixel_adder.average(), epoch_fft_adder.average()))
         epoch_fft_adder.reset()
         epoch_pixel_adder.reset()
         scheduler.step()
-        if epoch_idx % args.valid_freq == 0:
+        if epoch_idx % args.valid_freq == 0 or epoch_idx == 1:
             val = _valid(model, args, epoch_idx)
             print('%03d epoch \n Average PSNR %.2f dB' % (epoch_idx, val))
             writer.add_scalar('PSNR', val, epoch_idx)

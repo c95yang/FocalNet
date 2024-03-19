@@ -15,7 +15,7 @@ def _valid(model, args, ep):
 
     with torch.no_grad():
         print('Start Validation...')
-        factor = 16
+        factor = 32
         for idx, data in enumerate(its):
             input_img, label_img = data
             input_img = input_img.to(device)
