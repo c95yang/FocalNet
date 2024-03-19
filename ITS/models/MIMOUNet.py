@@ -7,11 +7,11 @@ from .layers import *
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res):
         super(EBlock, self).__init__()
-        #self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
-        #self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
+        self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
+        self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
 
         #keep default: depth [2], dim [96], mlp_ratio=4.0
-        layers = [VSSG(in_chans=out_channel) for _ in range(num_res)]
+        layers = [VSSG(in_chans=out_channel, forward_type="xv6") for _ in range(num_res)]
 
         #keep default: depth [2], dim [96]
         #layers = [VSSG(in_chans=out_channel, mlp_ratio=0, forward_type="xv6") for _ in range(num_res)]
@@ -27,8 +27,8 @@ class EBlock(nn.Module):
 
     def forward(self, x):
         res = self.layers(x)
-        #return self.a*res + self.b*x #channel attention
-        return res + x
+        return self.a*res + self.b*x #channel attention
+        #return res + x
     
     def flops(self, x):
         flops = 0
@@ -41,11 +41,11 @@ class EBlock(nn.Module):
 class DBlock(nn.Module):
     def __init__(self, channel, num_res):
         super(DBlock, self).__init__()
-        #self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
-        #self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
+        self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
+        self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
 
         #keep default: depth [2], dim [96], mlp_ratio=4.0
-        layers = [VSSG(in_chans=channel) for _ in range(num_res)]
+        layers = [VSSG(in_chans=channel, forward_type="xv6") for _ in range(num_res)]
 
         #keep default: depth [2], dim [96]
         #layers = [VSSG(in_chans=channel, mlp_ratio=0, forward_type="xv6") for _ in range(num_res)]
@@ -61,8 +61,8 @@ class DBlock(nn.Module):
 
     def forward(self, x):
         res = self.layers(x)
-        #return self.a*res + self.b*x #channel attention
-        return res + x #channel attention
+        return self.a*res + self.b*x #channel attention
+        #return res + x #channel attention
     
     def flops(self, x):
         flops = 0
