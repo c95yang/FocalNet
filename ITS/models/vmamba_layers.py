@@ -1093,7 +1093,8 @@ class VSSBlock(nn.Module):
 class VSSG(nn.Module):
     def __init__(
         self, 
-        patch_size=4, 
+        patch_size_global=8, 
+        patch_size_local=2, 
         in_chans=3, 
         #depths=[2, 2, 9, 2], 
         depths=[2],
@@ -1150,13 +1151,13 @@ class VSSG(nn.Module):
         _make_patch_embed = dict(
             v1=self._make_patch_embed, 
         ).get(patchembed_version, None)
-        self.patch_embed = _make_patch_embed(in_chans, dims[0], patch_size, patch_norm, norm_layer)
-        self.patch_embed_half = _make_patch_embed(in_chans, dims[0], patch_size//2, patch_norm, norm_layer)
+        self.patch_embed_global = _make_patch_embed(in_chans, dims[0], patch_size_global, patch_norm, norm_layer)
+        self.patch_embed_local = _make_patch_embed(in_chans, dims[0], patch_size_local, patch_norm, norm_layer)
 
         _make_patch_unembed = dict(
             v1=self._make_patch_unembed, 
         ).get(patchunembed_version, None)
-        self.patch_unembed = _make_patch_unembed(dims[0], in_chans, patch_size)
+        self.patch_unembed = _make_patch_unembed(dims[0], in_chans, patch_size_global)
 
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
@@ -1206,15 +1207,17 @@ class VSSG(nn.Module):
     def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4): 
         return nn.Sequential(
             Permute(0, 3, 1, 2),
-            nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size//2, bias=True, device='cuda', padding=1),
-            nn.Upsample(scale_factor=patch_size//2, mode='bilinear', align_corners=False),
+            nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda', padding=0)
+            # nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=1, stride=1, bias=True, device='cuda', padding=0),
+            # nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
+
         )
 
     def forward(self, x: torch.Tensor):
         #print("x.shape: ", x.shape) #([4, 32, 256, 256])
 
-        x_global = self.patch_embed(x) # bigger conv kernel, resulting in smaller feature map ([4, 64, 64, 96])
-        x_local = self.patch_embed_half(x) # smaller conv kernel, resulting in bigger feature map ([4, 128, 128, 96])
+        x_global = self.patch_embed_global(x) # bigger conv kernel, resulting in smaller feature map ([4, 64, 64, 96])
+        x_local = self.patch_embed_local(x) # smaller conv kernel, resulting in bigger feature map ([4, 128, 128, 96])
         #print("x_global.shape: ",x_global.shape)
         #print("x_local.shape: ", x_local.shape)
 
@@ -1225,7 +1228,7 @@ class VSSG(nn.Module):
 
         # dowmsample x_local to x_global size
         x_local = x_local.permute(0, 3, 1, 2)
-        x_local = F.interpolate(x_local, scale_factor=0.5)
+        x_local = F.interpolate(x_local, scale_factor=0.25)
         x_local = x_local.permute(0, 2, 3, 1)
         x = self.a * x_global + self.b * x_local 
 

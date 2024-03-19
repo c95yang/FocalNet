@@ -48,8 +48,6 @@ def main(args):
     model.cuda()
     if args.mode == 'train':
         _train(model, args)
-        #print(f"SSM FLOPs: {g['value']}")
-        #print(f"SSM Parameters: {p['value']}")
 
     elif args.mode == 'test':
         _eval(model, args)
