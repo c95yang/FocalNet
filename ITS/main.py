@@ -26,7 +26,7 @@ def main(args):
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
-    model = build_net(args.model_name)
+    model = build_net()
 
     #print(model)
 

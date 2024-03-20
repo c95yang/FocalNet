@@ -15,6 +15,9 @@ from timm.models.layers import DropPath, trunc_normal_
 from fvcore.nn import FlopCountAnalysis, flop_count_str, flop_count, parameter_count
 DropPath.__repr__ = lambda self: f"timm.DropPath({self.drop_prob})"
 
+torch.manual_seed(1234)
+torch.cuda.manual_seed_all(1234)
+
 # triton cross scan, 2x speed than pytorch implementation =========================
 try:
     from .csm_triton import CrossScanTriton, CrossMergeTriton, CrossScanTriton1b1
@@ -410,26 +413,6 @@ def selective_scan_flop_jit(inputs, outputs):
     flops = flops_selective_scan_fn(B=B, L=L, D=D, N=N, with_D=True, with_Z=False)
     return flops
 
-# =====================================================
-# we have this class as linear and conv init differ from each other
-# this function enable loading from both conv2d or linear
-class Linear2d(nn.Linear):
-    def forward(self, x: torch.Tensor):
-        # B, C, H, W = x.shape
-        return F.conv2d(x, self.weight[:, :, None, None], self.bias, device='cuda')
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        state_dict[prefix + "weight"] = state_dict[prefix + "weight"].view(self.weight.shape)
-        return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-
-
-class LayerNorm2d(nn.LayerNorm):
-    def forward(self, x: torch.Tensor):
-        x = x.permute(0, 2, 3, 1)
-        x = nn.functional.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps, device='cuda')
-        x = x.permute(0, 3, 1, 2)
-        return x
-
 class PatchMerging2D(nn.Module):
     def __init__(self, dim, out_dim=-1, norm_layer=nn.LayerNorm):
         super().__init__()
@@ -471,7 +454,7 @@ class Mlp(nn.Module):
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
 
-        Linear = Linear2d if channels_first else nn.Linear
+        Linear = nn.Linear
         self.fc1 = Linear(in_features, hidden_features, device='cuda')
         self.act = act_layer()
         self.fc2 = Linear(hidden_features, out_features, device='cuda')
@@ -491,7 +474,7 @@ class gMlp(nn.Module):
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
 
-        Linear = Linear2d if channels_first else nn.Linear
+        Linear = nn.Linear
         self.fc1 = Linear(in_features, 2 * hidden_features)
         self.act = act_layer()
         self.fc2 = Linear(hidden_features, out_features)
@@ -1093,13 +1076,13 @@ class VSSBlock(nn.Module):
 class VSSG(nn.Module):
     def __init__(
         self, 
-        patch_size_global=8, 
-        patch_size_local=2, 
-        in_chans=3, 
+        in_chans, 
+        patch_size_global, 
+        patch_size_local, 
         #depths=[2, 2, 9, 2], 
+        gl_merge,
         depths=[2],
         #dims=[96, 192, 384, 768], 
-        dims=[96],
         # =========================
         ssm_d_state=16,
         ssm_ratio=2.0,
@@ -1117,23 +1100,21 @@ class VSSG(nn.Module):
         # =========================
         drop_path_rate=0.1, 
         patch_norm=True, 
-        norm_layer="LN", # "BN", "LN2D"
-        downsample_version: str = "v2", # "v1", "v2", "v3", "v_no", "none"
-        patchembed_version: str = "v1", # "v1", "v2"
-        patchunembed_version: str = "v1", # "v1", "v2"
+        norm_layer="LN", # "BN"
         use_checkpoint=False,  
         **kwargs,
     ):
         super().__init__()
         self.num_layers = len(depths)
-        self.dims = dims
-        self.a = nn.Parameter(torch.ones(1,1,dims[0], device='cuda'))
-        self.b = nn.Parameter(torch.ones(1,1,dims[0], device='cuda'))
+        self.dim = 96
+        self.gl_merge = gl_merge
+
+        #self.a = nn.Parameter(torch.ones(1,1,dim, device='cuda'))
+        #self.b = nn.Parameter(torch.ones(1,1,dim, device='cuda'))
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         
         _NORMLAYERS = dict(
             ln=nn.LayerNorm,
-            ln2d=LayerNorm2d,
             bn=nn.BatchNorm2d,
         )
 
@@ -1148,40 +1129,58 @@ class VSSG(nn.Module):
         ssm_act_layer: nn.Module = _ACTLAYERS.get(ssm_act_layer.lower(), None)
         mlp_act_layer: nn.Module = _ACTLAYERS.get(mlp_act_layer.lower(), None)
 
-        _make_patch_embed = dict(
-            v1=self._make_patch_embed, 
-        ).get(patchembed_version, None)
-        self.patch_embed_global = _make_patch_embed(in_chans, dims[0], patch_size_global, patch_norm, norm_layer)
-        self.patch_embed_local = _make_patch_embed(in_chans, dims[0], patch_size_local, patch_norm, norm_layer)
-
-        _make_patch_unembed = dict(
-            v1=self._make_patch_unembed, 
-        ).get(patchunembed_version, None)
-        self.patch_unembed = _make_patch_unembed(dims[0], in_chans, patch_size_global)
-
         self.layers = nn.ModuleList()
-        for i_layer in range(self.num_layers):
-            self.layers.append(GlobalLocalScan(
-                dim = self.dims[i_layer],
-                drop_path = dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
-                use_checkpoint=use_checkpoint,
-                norm_layer=norm_layer,
-                downsample=nn.Identity(),
-                # =================
-                ssm_d_state=ssm_d_state,
-                ssm_ratio=ssm_ratio,
-                ssm_dt_rank=ssm_dt_rank,
-                ssm_act_layer=ssm_act_layer,
-                ssm_conv=ssm_conv,
-                ssm_conv_bias=ssm_conv_bias,
-                ssm_drop_rate=ssm_drop_rate,
-                ssm_init=ssm_init,
-                forward_type=forward_type,
-                # =================
-                mlp_ratio=mlp_ratio,
-                mlp_act_layer=mlp_act_layer,
-                mlp_drop_rate=mlp_drop_rate,
-            ))
+
+        self.patch_embed_global = self._make_patch_embed(in_chans, self.dim, patch_size_global, patch_norm, norm_layer)
+        self.patch_unembed_global = self._make_patch_unembed(self.dim, in_chans, patch_size_global)
+
+        if self.gl_merge:
+            self.patch_embed_local = self._make_patch_embed(in_chans, self.dim, patch_size_local, patch_norm, norm_layer)
+            self.patch_unembed_local = self._make_patch_unembed(self.dim, in_chans, patch_size_local)
+
+            for i_layer in range(self.num_layers):
+                self.layers.append(GlobalLocalScan(
+                    dim = self.dim,
+                    drop_path = dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
+                    use_checkpoint=use_checkpoint,
+                    norm_layer=norm_layer,
+                    # =================
+                    ssm_d_state=ssm_d_state,
+                    ssm_ratio=ssm_ratio,
+                    ssm_dt_rank=ssm_dt_rank,
+                    ssm_act_layer=ssm_act_layer,
+                    ssm_conv=ssm_conv,
+                    ssm_conv_bias=ssm_conv_bias,
+                    ssm_drop_rate=ssm_drop_rate,
+                    ssm_init=ssm_init,
+                    forward_type=forward_type,
+                    # =================
+                    mlp_ratio=mlp_ratio,
+                    mlp_act_layer=mlp_act_layer,
+                    mlp_drop_rate=mlp_drop_rate,
+                ))
+        else:
+            for i_layer in range(self.num_layers):
+                self.layers.append(GlobalScan(
+                    dim = self.dim,
+                    drop_path = dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
+                    use_checkpoint=use_checkpoint,
+                    norm_layer=norm_layer,
+                    # =================
+                    ssm_d_state=ssm_d_state,
+                    ssm_ratio=ssm_ratio,
+                    ssm_dt_rank=ssm_dt_rank,
+                    ssm_act_layer=ssm_act_layer,
+                    ssm_conv=ssm_conv,
+                    ssm_conv_bias=ssm_conv_bias,
+                    ssm_drop_rate=ssm_drop_rate,
+                    ssm_init=ssm_init,
+                    forward_type=forward_type,
+                    # =================
+                    mlp_ratio=mlp_ratio,
+                    mlp_act_layer=mlp_act_layer,
+                    mlp_drop_rate=mlp_drop_rate,
+                ))
 
         self.apply(self._init_weights)
 
@@ -1195,7 +1194,7 @@ class VSSG(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     @staticmethod
-    def _make_patch_embed(in_chans=3, embed_dim=96, patch_size=4, patch_norm=True, norm_layer=nn.LayerNorm):
+    def _make_patch_embed(in_chans, embed_dim, patch_size, patch_norm=True, norm_layer=nn.LayerNorm):
         return nn.Sequential(
             nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda'),
             #nn.MaxPool2d(kernel_size=patch_size, stride=patch_size),
@@ -1204,16 +1203,14 @@ class VSSG(nn.Module):
         )
     
     @staticmethod
-    def _make_patch_unembed(in_chans=96, embed_dim=3, patch_size=4): 
+    def _make_patch_unembed(embed_dim, out_chans, patch_size=4): 
         return nn.Sequential(
             Permute(0, 3, 1, 2),
-            nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=True, device='cuda', padding=0)
-            # nn.ConvTranspose2d(in_chans, embed_dim, kernel_size=1, stride=1, bias=True, device='cuda', padding=0),
-            # nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
-
+            nn.Conv2d(embed_dim, out_chans, kernel_size=1, stride=1, bias=True, device='cuda'),
+            nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward_gl(self, x: torch.Tensor):
         #print("x.shape: ", x.shape) #([4, 32, 256, 256])
 
         x_global = self.patch_embed_global(x) # bigger conv kernel, resulting in smaller feature map ([4, 64, 64, 96])
@@ -1226,17 +1223,34 @@ class VSSG(nn.Module):
             #print("x_global.shape: ", x_global.shape)
             #print("x_local.shape: ", x_local.shape)
 
-        # dowmsample x_local to x_global size
-        x_local = x_local.permute(0, 3, 1, 2)
-        x_local = F.interpolate(x_local, scale_factor=0.25)
-        x_local = x_local.permute(0, 2, 3, 1)
-        x = self.a * x_global + self.b * x_local 
-
-        x = self.patch_unembed(x)
+        x_global = self.patch_unembed_global(x_global)
+        x_local = self.patch_unembed_local(x_local)
+        #x = self.a * x_global + self.b * x_local 
+        x = x_global + x_local 
         #print("x.shape: ", x.shape)
-        # additional norm layer after unembedding?
-        # x = nn.LayerNorm(x.shape[-2:], device='cuda')(x)
         return x
+    
+    def forward_g(self, x: torch.Tensor):
+        #print("x.shape: ", x.shape) #([4, 32, 256, 256])
+
+        x_global = self.patch_embed_global(x) 
+        #print("x_global.shape: ",x_global.shape)
+
+        for i, layer in enumerate(self.layers):
+            x_global = layer(x_global)
+            #print("x_global.shape: ", x_global.shape)
+
+        x_global = self.patch_unembed_global(x_global)
+        #x = self.a * x_global + self.b * x_local 
+        x = x_global
+        #print("x.shape: ", x.shape)
+        return x
+    
+    def forward(self, x: torch.Tensor):
+        if self.gl_merge:
+            return self.forward_gl(x)
+        else:
+            return self.forward_g(x)
 
     def flops(self, x):
         shape = x.shape[1:]
@@ -1270,7 +1284,6 @@ class GlobalLocalScan(nn.Module):
             drop_path=[0.1, 0.1], 
             use_checkpoint=False, 
             norm_layer=nn.LayerNorm,
-            downsample=nn.Identity(),
             # ===========================
             ssm_d_state=16,
             ssm_ratio=2.0,
@@ -1312,7 +1325,7 @@ class GlobalLocalScan(nn.Module):
 
         blocks2 = []
         for d in range(depth):
-            blocks1.append(VSSBlock(
+            blocks2.append(VSSBlock(
                 hidden_dim=dim, 
                 drop_path=drop_path[d],
                 norm_layer=norm_layer,
@@ -1339,6 +1352,58 @@ class GlobalLocalScan(nn.Module):
         x_local = self.seq_local(x_local) + x_local
         return x_global, x_local
 
+
+class GlobalScan(nn.Module):
+    def __init__(            
+            self,
+            dim=96, 
+            drop_path=[0.1, 0.1], 
+            use_checkpoint=False, 
+            norm_layer=nn.LayerNorm,
+            # ===========================
+            ssm_d_state=16,
+            ssm_ratio=2.0,
+            ssm_dt_rank="auto",       
+            ssm_act_layer=nn.SiLU,
+            ssm_conv=3,
+            ssm_conv_bias=True,
+            ssm_drop_rate=0.0, 
+            ssm_init="v0",
+            forward_type="v2",
+            # ===========================
+            mlp_ratio=4.0,
+            mlp_act_layer=nn.GELU,
+            mlp_drop_rate=0.0,
+            **kwargs,):
+        super(GlobalScan, self).__init__()
+        depth = len(drop_path)
+
+        blocks = []
+        for d in range(depth):
+            blocks.append(VSSBlock(
+                hidden_dim=dim, 
+                drop_path=drop_path[d],
+                norm_layer=norm_layer,
+                ssm_d_state=ssm_d_state,
+                ssm_ratio=ssm_ratio,
+                ssm_dt_rank=ssm_dt_rank,
+                ssm_act_layer=ssm_act_layer,
+                ssm_conv=ssm_conv,
+                ssm_conv_bias=ssm_conv_bias,
+                ssm_drop_rate=ssm_drop_rate,
+                ssm_init=ssm_init,
+                forward_type=forward_type,
+                mlp_ratio=mlp_ratio,
+                mlp_act_layer=mlp_act_layer,
+                mlp_drop_rate=mlp_drop_rate,
+                use_checkpoint=use_checkpoint,
+            ))
+
+        self.seq_global = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks)))
+
+    def forward(self, x_global):
+        x_global = self.seq_global(x_global) + x_global
+        return x_global
 
 
 
