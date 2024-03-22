@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .layers import *
 
+torch.manual_seed(1234)
+torch.cuda.manual_seed_all(1234)
+
 
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res):
@@ -10,8 +13,8 @@ class EBlock(nn.Module):
         #self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
         #self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
 
-        # depth [2] mlp_ratio=4.0
-        layers = [VSSG(gl_merge=True, in_chans=out_channel, patch_size_global=4, patch_size_local=4, forward_type="v4") for _ in range(num_res)]
+        # depth [2] 
+        layers = [VSSG(gl_merge=False, in_chans=out_channel, patch_size_global=4, patch_size_local=4, forward_type="v4", mlp_ratio=4.0) for _ in range(num_res)]
         
         #layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
@@ -35,8 +38,8 @@ class DBlock(nn.Module):
         #self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
         #self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
 
-        # depth [2] mlp_ratio=4.0
-        layers = [VSSG(gl_merge=True, in_chans=channel, patch_size_global=4, patch_size_local=4, forward_type="v4") for _ in range(num_res)]
+        # depth [2] 
+        layers = [VSSG(gl_merge=False, in_chans=channel, patch_size_global=4, patch_size_local=4, forward_type="v4", mlp_ratio=4.0) for _ in range(num_res)]
 
         #layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)

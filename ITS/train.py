@@ -30,7 +30,7 @@ def _train(model, args):
         print('Resume from %d'%epoch)
         epoch += 1
 
-    wan = wandb.init(entity="Low-Level-Vision", project="dehazing", name='global8-local2-xv6')
+    wan = wandb.init(entity="Low-Level-Vision", project="dehazing", name='gl')
     wan.config.update(dict(batch_size=args.batch_size, epoch=args.num_epoch))
 
     writer = SummaryWriter()

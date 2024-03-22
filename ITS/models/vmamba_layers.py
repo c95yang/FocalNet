@@ -408,8 +408,13 @@ def cross_selective_scan(
 
 def selective_scan_flop_jit(inputs, outputs):
     print_jit_input_names(inputs)
-    B, D, L = inputs[0].type().sizes()
-    N = inputs[2].type().sizes()[1]
+    #print(f"inputs: {inputs}")
+    B, D, L = inputs[0].type().sizes() # u
+    #print(inputs[0])
+    #print(f"B: {B}, D: {D}, L: {L}")
+    N = inputs[2].type().sizes()[1] # A
+    #print(inputs[2])
+    #print(f"N: {N}")
     flops = flops_selective_scan_fn(B=B, L=L, D=D, N=N, with_D=True, with_Z=False)
     return flops
 
@@ -1206,8 +1211,10 @@ class VSSG(nn.Module):
     def _make_patch_unembed(embed_dim, out_chans, patch_size=4): 
         return nn.Sequential(
             Permute(0, 3, 1, 2),
-            nn.Conv2d(embed_dim, out_chans, kernel_size=1, stride=1, bias=True, device='cuda'),
-            nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
+            #nn.Conv2d(embed_dim, out_chans, kernel_size=1, stride=1, bias=True, device='cuda'),
+            #nn.Upsample(scale_factor=patch_size, mode='bilinear', align_corners=False),
+            nn.Conv2d(embed_dim, out_chans*patch_size*patch_size, kernel_size=1, stride=1, bias=True, device='cuda'),
+            nn.PixelShuffle(upscale_factor=patch_size),
         )
 
     def forward_gl(self, x: torch.Tensor):
@@ -1302,9 +1309,9 @@ class GlobalLocalScan(nn.Module):
         super(GlobalLocalScan, self).__init__()
         depth = len(drop_path)
 
-        blocks1 = []
+        blocks_global = []
         for d in range(depth):
-            blocks1.append(VSSBlock(
+            blocks_global.append(VSSBlock(
                 hidden_dim=dim, 
                 drop_path=drop_path[d],
                 norm_layer=norm_layer,
@@ -1323,9 +1330,9 @@ class GlobalLocalScan(nn.Module):
                 use_checkpoint=use_checkpoint,
             ))
 
-        blocks2 = []
+        blocks_local = []
         for d in range(depth):
-            blocks2.append(VSSBlock(
+            blocks_local.append(VSSBlock(
                 hidden_dim=dim, 
                 drop_path=drop_path[d],
                 norm_layer=norm_layer,
@@ -1344,8 +1351,8 @@ class GlobalLocalScan(nn.Module):
                 use_checkpoint=use_checkpoint,
             ))
 
-        self.seq_global = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks1)))
-        self.seq_local = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks2)))
+        self.seq_global = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_global)))
+        self.seq_local = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_local)))
 
     def forward(self, x_global, x_local):
         x_global = self.seq_global(x_global) + x_global
