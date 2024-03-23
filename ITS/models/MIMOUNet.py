@@ -10,18 +10,17 @@ torch.cuda.manual_seed_all(1234)
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res):
         super(EBlock, self).__init__()
-        #self.a = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
-        #self.b = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
+        #self.scale = nn.Parameter(torch.ones(out_channel,1,1, device='cuda'))
 
         # depth [2] 
-        layers = [VSSG(gl_merge=False, in_chans=out_channel, patch_size_global=4, patch_size_local=4, forward_type="v4", mlp_ratio=4.0) for _ in range(num_res)]
+        layers = [VSSG(gl_merge=True, in_chans=out_channel, patch_size_global=8, patch_size_local=4, forward_type="v4", mlp_ratio=4.0) for _ in range(num_res)]
         
         #layers = [ResBlock(out_channel, out_channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
         res = self.layers(x)
-        #return self.a*res + self.b*x #channel attention
+        #return self.scale * res + x #scaled residual
         return res + x
     
     def flops(self, x):
@@ -35,18 +34,17 @@ class EBlock(nn.Module):
 class DBlock(nn.Module):
     def __init__(self, channel, num_res):
         super(DBlock, self).__init__()
-        #self.a = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
-        #self.b = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
+        #self.scale = nn.Parameter(torch.ones(channel,1,1, device='cuda'))
 
         # depth [2] 
-        layers = [VSSG(gl_merge=False, in_chans=channel, patch_size_global=4, patch_size_local=4, forward_type="v4", mlp_ratio=4.0) for _ in range(num_res)]
+        layers = [VSSG(gl_merge=True, in_chans=channel, patch_size_global=8, patch_size_local=4, forward_type="v4", mlp_ratio=4.0) for _ in range(num_res)]
 
         #layers = [ResBlock(channel, channel) for _ in range(num_res)]
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
         res = self.layers(x)
-        #return self.a*res + self.b*x #channel attention
+        #return self.scale * res + x #scaled residual
         return res + x 
     
     def flops(self, x):
@@ -179,7 +177,6 @@ class MIMOUNet(nn.Module):
         flops += self.Decoder[2].flops(z256)
 
         return flops
-
 
 def build_net():
     return MIMOUNet()

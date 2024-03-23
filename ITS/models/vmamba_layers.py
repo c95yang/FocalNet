@@ -408,13 +408,8 @@ def cross_selective_scan(
 
 def selective_scan_flop_jit(inputs, outputs):
     print_jit_input_names(inputs)
-    #print(f"inputs: {inputs}")
     B, D, L = inputs[0].type().sizes() # u
-    #print(inputs[0])
-    #print(f"B: {B}, D: {D}, L: {L}")
     N = inputs[2].type().sizes()[1] # A
-    #print(inputs[2])
-    #print(f"N: {N}")
     flops = flops_selective_scan_fn(B=B, L=L, D=D, N=N, with_D=True, with_Z=False)
     return flops
 
@@ -470,25 +465,6 @@ class Mlp(nn.Module):
         x = self.act(x)
         x = self.drop(x)
         x = self.fc2(x)
-        x = self.drop(x)
-        return x
-
-class gMlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.,channels_first=False):
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-
-        Linear = nn.Linear
-        self.fc1 = Linear(in_features, 2 * hidden_features)
-        self.act = act_layer()
-        self.fc2 = Linear(hidden_features, out_features)
-        self.drop = nn.Dropout(drop)
-
-    def forward(self, x: torch.Tensor):
-        x = self.fc1(x)
-        x, z = x.chunk(2, dim=-1)
-        x = self.fc2(self.drop(x) * self.act(z))
         x = self.drop(x)
         return x
     
@@ -1113,9 +1089,8 @@ class VSSG(nn.Module):
         self.num_layers = len(depths)
         self.dim = 96
         self.gl_merge = gl_merge
+        self.scale = nn.Parameter(torch.ones(in_chans, 1, 1, device='cuda'))
 
-        #self.a = nn.Parameter(torch.ones(1,1,dim, device='cuda'))
-        #self.b = nn.Parameter(torch.ones(1,1,dim, device='cuda'))
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         
         _NORMLAYERS = dict(
@@ -1218,39 +1193,24 @@ class VSSG(nn.Module):
         )
 
     def forward_gl(self, x: torch.Tensor):
-        #print("x.shape: ", x.shape) #([4, 32, 256, 256])
-
         x_global = self.patch_embed_global(x) # bigger conv kernel, resulting in smaller feature map ([4, 64, 64, 96])
         x_local = self.patch_embed_local(x) # smaller conv kernel, resulting in bigger feature map ([4, 128, 128, 96])
-        #print("x_global.shape: ",x_global.shape)
-        #print("x_local.shape: ", x_local.shape)
 
         for i, layer in enumerate(self.layers):
             x_global, x_local = layer(x_global, x_local)
-            #print("x_global.shape: ", x_global.shape)
-            #print("x_local.shape: ", x_local.shape)
 
         x_global = self.patch_unembed_global(x_global)
         x_local = self.patch_unembed_local(x_local)
-        #x = self.a * x_global + self.b * x_local 
-        x = x_global + x_local 
-        #print("x.shape: ", x.shape)
+        x = self.scale * x_global + x_local 
         return x
     
     def forward_g(self, x: torch.Tensor):
-        #print("x.shape: ", x.shape) #([4, 32, 256, 256])
-
         x_global = self.patch_embed_global(x) 
-        #print("x_global.shape: ",x_global.shape)
 
         for i, layer in enumerate(self.layers):
             x_global = layer(x_global)
-            #print("x_global.shape: ", x_global.shape)
 
-        x_global = self.patch_unembed_global(x_global)
-        #x = self.a * x_global + self.b * x_local 
-        x = x_global
-        #print("x.shape: ", x.shape)
+        x = self.patch_unembed_global(x_global)
         return x
     
     def forward(self, x: torch.Tensor):
@@ -1355,8 +1315,10 @@ class GlobalLocalScan(nn.Module):
         self.seq_local = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_local)))
 
     def forward(self, x_global, x_local):
-        x_global = self.seq_global(x_global) + x_global
-        x_local = self.seq_local(x_local) + x_local
+        #x_global = self.seq_global(x_global) + x_global
+        #x_local = self.seq_local(x_local) + x_local
+        x_global = self.seq_global(x_global)
+        x_local = self.seq_local(x_local)
         return x_global, x_local
 
 
@@ -1409,7 +1371,8 @@ class GlobalScan(nn.Module):
         self.seq_global = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks)))
 
     def forward(self, x_global):
-        x_global = self.seq_global(x_global) + x_global
+        #x_global = self.seq_global(x_global) + x_global
+        x_global = self.seq_global(x_global)
         return x_global
 
 

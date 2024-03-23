@@ -30,8 +30,8 @@ def _train(model, args):
         print('Resume from %d'%epoch)
         epoch += 1
 
-    wan = wandb.init(entity="Low-Level-Vision", project="dehazing", name='gl')
-    wan.config.update(dict(batch_size=args.batch_size, epoch=args.num_epoch))
+    #wan = wandb.init(entity="Low-Level-Vision", project="dehazing", name='gl')
+    #wan.config.update(dict(batch_size=args.batch_size, epoch=args.num_epoch))
 
     writer = SummaryWriter()
 
@@ -102,7 +102,7 @@ def _train(model, args):
                     iter_fft_adder.average()))
                 writer.add_scalar('Pixel Loss', iter_pixel_adder.average(), iter_idx + (epoch_idx-1)* max_iter)
                 writer.add_scalar('FFT Loss', iter_fft_adder.average(), iter_idx + (epoch_idx - 1) * max_iter)
-                wan.log({'Pixel Loss': iter_pixel_adder.average(), 'FFT Loss':iter_fft_adder.average()})
+                #wan.log({'Pixel Loss': iter_pixel_adder.average(), 'FFT Loss':iter_fft_adder.average()})
 
                 iter_timer.tic()
                 iter_pixel_adder.reset()
@@ -124,7 +124,7 @@ def _train(model, args):
             val = _valid(model, args, epoch_idx)
             print('%03d epoch \n Average PSNR %.2f dB' % (epoch_idx, val))
             writer.add_scalar('PSNR', val, epoch_idx)
-            wan.log({'PSNR':val})
+            #wan.log({'PSNR':val})
             if val >= best_psnr:
                 torch.save({'model': model.state_dict()}, os.path.join(args.model_save_dir, 'Best.pkl'))
     save_name = os.path.join(args.model_save_dir, 'Final.pkl')

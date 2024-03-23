@@ -58,7 +58,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Directories
-    parser.add_argument('--model_name', default='MIMO-UNet', choices=['MIMO-UNet', 'MIMO-UNetPlus'], type=str)
+    parser.add_argument('--model_name', default='MIMO-UNet', choices=['MIMO-UNet'], type=str)
 #    parser.add_argument('--data_dir', type=str, default='/data/ir_datasets/reside-indoor')
 #    parser.add_argument('--data_dir', type=str, default='/mnt/nvme0n1/cyn/datasets/its/reside-indoor')
     parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
