@@ -16,7 +16,7 @@ def parse_log_file(log_file):
                 psnr = re.findall(r'Average PSNR (\d+\.\d+) dB', line)
                 if psnr:
                     psnr_values.append(float(psnr[0]))
-                    timestamps.append(t)
+                    timestamps.append(t*10)
                     t += 1
     
     print("Timestamps:", timestamps)
@@ -47,6 +47,11 @@ def plot_multiple_psnr_curves(log_files):
         timestamps, psnr_values = parse_log_file(log_file)
         plt.plot(timestamps, psnr_values, marker='o', linestyle='-', label=filename,markersize=3)
 
+        # Display the last PSNR value
+        last_psnr = psnr_values[-1]
+        last_timestamp = timestamps[-1]
+        plt.text(last_timestamp, last_psnr, f' {last_psnr:.2f}', fontsize=8, verticalalignment='bottom')
+
     plt.title('PSNR Curves from Multiple Log Files')
     plt.xlabel('EPOCH')
     plt.ylabel('PSNR (dB)')
@@ -57,7 +62,7 @@ def plot_multiple_psnr_curves(log_files):
 if __name__ == '__main__':
     log_files = [
         '/home/cc/Documents/20.03.setup/g4_final.log',
-        '/home/cc/Documents/20.03.setup/tmp/g2.log',
+        '/home/cc/Documents/20.03.setup/g2_final.log',
         '/home/cc/Documents/20.03.setup/ps_g4_final.log',
         '/home/cc/Documents/20.03.setup/tmp/ps_g4t.log', 
         '/home/cc/Documents/20.03.setup/tmp/ps_gl84.log',
