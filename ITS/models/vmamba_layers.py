@@ -1089,7 +1089,7 @@ class VSSG(nn.Module):
         self.num_layers = len(depths)
         self.dim = 96
         self.gl_merge = gl_merge
-        self.scale = nn.Parameter(torch.ones(in_chans, 1, 1, device='cuda'))
+        #self.scale = nn.Parameter(torch.ones(in_chans, 1, 1, device='cuda'))
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         
@@ -1201,7 +1201,8 @@ class VSSG(nn.Module):
 
         x_global = self.patch_unembed_global(x_global)
         x_local = self.patch_unembed_local(x_local)
-        x = self.scale * x_global + x_local 
+        #x = self.scale * x_global + x_local 
+        x = x_global + x_local 
         return x
     
     def forward_g(self, x: torch.Tensor):
