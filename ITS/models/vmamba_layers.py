@@ -3,6 +3,8 @@ import copy
 from functools import partial
 from typing import Any
 from collections import OrderedDict
+import random
+random.seed(1234)
 
 import torch
 import torch.nn as nn
@@ -1033,14 +1035,8 @@ class VSSBlock(nn.Module):
 
     def _forward(self, input: torch.Tensor):
             if self.ssm_branch:
-                if self.post_norm:
-                    x = input + self.drop_path(self.norm(self.op(input)))
-                else:
                     x = input + self.drop_path(self.op(self.norm(input)))
             if self.mlp_branch:
-                if self.post_norm:
-                    x = x + self.drop_path(self.norm2(self.mlp(x))) # FFN
-                else:
                     x = x + self.drop_path(self.mlp(self.norm2(x))) # FFN
             return x
 
@@ -1085,6 +1081,7 @@ class VSSG(nn.Module):
         super().__init__()
         self.num_layers = len(depths)
         self.dim = 96
+        self.train_enabled = True
         self.gl_merge = gl_merge
         #self.scale = nn.Parameter(torch.ones(in_chans, 1, 1, device='cuda'))
 
@@ -1108,16 +1105,16 @@ class VSSG(nn.Module):
 
         self.layers = nn.ModuleList()
 
-        self.patch_embed_global = self._make_patch_embed(in_chans//2, self.dim//2, patch_size_global, patch_norm, norm_layer)
-        self.patch_unembed_global = self._make_patch_unembed(self.dim//2, in_chans//2, patch_size_global)
+        self.patch_embed_global = self._make_patch_embed(in_chans, self.dim, patch_size_global, patch_norm, norm_layer)
+        self.patch_unembed_global = self._make_patch_unembed(self.dim, in_chans, patch_size_global)
 
         if self.gl_merge:
-            self.patch_embed_local = self._make_patch_embed(in_chans//2, self.dim//2, patch_size_local, patch_norm, norm_layer)
-            self.patch_unembed_local = self._make_patch_unembed(self.dim//2, in_chans//2, patch_size_local)
+            self.patch_embed_local = self._make_patch_embed(in_chans, self.dim, patch_size_local, patch_norm, norm_layer)
+            self.patch_unembed_local = self._make_patch_unembed(self.dim, in_chans, patch_size_local)
 
             for i_layer in range(self.num_layers):
                 self.layers.append(GlobalLocalScan(
-                    dim = self.dim//2,
+                    dim = self.dim,
                     drop_path = dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                     use_checkpoint=use_checkpoint,
                     norm_layer=norm_layer,
@@ -1169,6 +1166,20 @@ class VSSG(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+    
+    @staticmethod
+    def random_mask_generator(height, width, percent_zero):
+        num_zero_pixels = int((percent_zero / 100) * height * width)
+        mask = torch.ones(height, width, device='cuda')
+
+        #zero_indices = [(random.randint(0, height - 1), random.randint(0, width - 1)) for _ in range(num_zero_pixels)]
+        all_indices = [(i, j) for i in range(height) for j in range(width)]
+        random.shuffle(all_indices)
+        zero_indices = all_indices[:num_zero_pixels]
+
+        for i, j in zero_indices:
+            mask[i, j] = 0
+        return mask
 
     @staticmethod
     def _make_patch_embed(in_chans, embed_dim, patch_size, patch_norm=True, norm_layer=nn.LayerNorm):
@@ -1190,29 +1201,33 @@ class VSSG(nn.Module):
         )
 
     def forward_gl(self, x: torch.Tensor):
-        x_global, x_local = torch.chunk(x, 2, dim=1)
-        # print(x_global.shape, x_local.shape)
+        x_global, x_local = x, x 
+        # x_global, x_local = torch.chunk(x, 2, dim=1)
 
-        x_global = self.patch_embed_global(x_global) # bigger conv kernel, resulting in smaller feature map 
-        x_local = self.patch_embed_local(x_local) # smaller conv kernel, resulting in bigger feature map 
-        # print(x_global.shape, x_local.shape)
+        x_global = self.patch_embed_global(x_global)  # bigger conv kernel, resulting in smaller feature map 
+        if self.train_enabled:
+            _, h, w, _ = x_global.shape
+            mask_g = self.random_mask_generator(h, w, percent_zero = 5)
+            x_global *= mask_g.unsqueeze(-1)
+
+        x_local = self.patch_embed_local(x_local)  # smaller conv kernel, resulting in bigger feature map 
+        if self.train_enabled:
+            _, h, w, _ = x_local.shape
+            mask_l = self.random_mask_generator(h, w, percent_zero = 5)
+            x_local *= mask_l.unsqueeze(-1)
 
         for i, layer in enumerate(self.layers):
             x_global, x_local = layer(x_global, x_local)
-            # print(x_global.shape, x_local.shape)
 
         x_global = self.patch_unembed_global(x_global)
         x_local = self.patch_unembed_local(x_local)
-        # print(x_global.shape, x_local.shape)
 
         #----------------------------------
         # x = self.scale * x_global + x_local 
         #----------------------------------
-        # x = x_global + x_local 
+        x = x_global + x_local 
         #----------------------------------
-
-        x = torch.cat([x_global, x_local], dim=1)
-        # print(x.shape)
+        # x = torch.cat([x_global, x_local], dim=1)
         return x
     
     def forward_g(self, x: torch.Tensor):
@@ -1229,6 +1244,16 @@ class VSSG(nn.Module):
             return self.forward_gl(x)
         else:
             return self.forward_g(x)
+        
+    def train(self, mode=True):
+        # Override the train method to customize behavior during training mode, enable certain features during training
+        self.train_enabled = True
+        super(VSSG, self).train(mode)
+
+    def eval(self):
+        # Override the eval method to customize behavior during evaluation mode, disable certain features during evaluation
+        self.train_enabled = False
+        super(VSSG, self).eval()
 
     def flops(self, x):
         shape = x.shape[1:]

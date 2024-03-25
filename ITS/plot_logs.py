@@ -2,14 +2,13 @@ import re
 import os
 import matplotlib.pyplot as plt
 
-psnr_threshold = 32
-pixel_threshold = 0.05
-fft_threshold = 1.5
+psnr_bound = (33.5, 50)
+pixel_bound = (0, 0.06)
+fft_bound = (0, 1.7)
 
-def clamp_loss_values(loss_values, threshold=5.0, upper=False):
-    if upper:
-        return [max(loss, threshold) for loss in loss_values]
-    return [min(loss, threshold) for loss in loss_values]
+def clamp_loss_values(loss_values, bound):
+    lower_bound, upper_bound = bound
+    return [min(max(loss, lower_bound), upper_bound) for loss in loss_values]
 
 def parse_psnr_from_log(log_file):
     psnr_values = []
@@ -72,7 +71,7 @@ def plot_multiple_psnr_curves(log_files):
         filename = os.path.basename(log_file)
         filename = os.path.splitext(filename)[0]  # Remove file extension
         timestamps, psnr_values = parse_psnr_from_log(log_file)
-        psnr_values = clamp_loss_values(psnr_values, threshold=psnr_threshold, upper=True)
+        psnr_values = clamp_loss_values(psnr_values, bound=psnr_bound)
         plt.plot(timestamps, psnr_values, marker='o', linestyle='-', label=filename, markersize=2, linewidth=1)
 
         last_psnr = psnr_values[-1]
@@ -92,7 +91,7 @@ def plot_multiple_pixel_loss_curves(log_files):
         filename = os.path.basename(log_file)
         filename = os.path.splitext(filename)[0]  # Remove file extension
         timestamps, pixel_loss = extract_pixel_from_log(log_file)
-        pixel_loss = clamp_loss_values(pixel_loss, threshold=pixel_threshold)
+        pixel_loss = clamp_loss_values(pixel_loss, bound=pixel_bound)
 
         timestamps = timestamps[::200]
         pixel_loss = pixel_loss[::200]
@@ -112,7 +111,7 @@ def plot_multiple_fft_loss_curves(log_files):
         filename = os.path.basename(log_file)
         filename = os.path.splitext(filename)[0]  # Remove file extension
         timestamps, fft_loss = extract_fft_from_log(log_file)
-        fft_loss = clamp_loss_values(fft_loss, threshold=fft_threshold)
+        fft_loss = clamp_loss_values(fft_loss, bound=fft_bound)
 
         timestamps = timestamps[::200]
         fft_loss = fft_loss[::200]
@@ -131,16 +130,16 @@ if __name__ == '__main__':
         '/home/cc/Documents/20.03.setup/tmp/mlp4.log',
         '/home/cc/Documents/20.03.setup/tmp/mlp2.log',
         '/home/cc/Documents/20.03.setup/tmp/mlp1.log',
-        '/home/cc/Documents/20.03.setup/mlp0_stopped.log',
-        '/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
-        '/home/cc/Documents/20.03.setup/ps_gl84t_stopped.log',
-        '/home/cc/Documents/20.03.setup/ps_g4_final.log',
-        '/home/cc/Documents/20.03.setup/ps_gl84_final.log',
-        '/home/cc/Documents/20.03.setup/g4_final.log',
-        '/home/cc/Documents/20.03.setup/g2_final.log',
+        #'/home/cc/Documents/20.03.setup/mlp0_stopped.log',
+        #'/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
+        #'/home/cc/Documents/20.03.setup/ps_gl84t_stopped.log',
+        #'/home/cc/Documents/20.03.setup/ps_g4_final.log',
+        #'/home/cc/Documents/20.03.setup/ps_gl84_final.log',
+        #'/home/cc/Documents/20.03.setup/g4_final.log',
+        #'/home/cc/Documents/20.03.setup/g2_final.log',
         '/home/cc/Documents/20.03.setup/gl42_final.log',
-        '/home/cc/Documents/20.03.setup/gl44_final.log',
-        '/home/cc/Documents/20.03.setup/gl84_final.log',
+        #'/home/cc/Documents/20.03.setup/gl44_final.log',
+        #'/home/cc/Documents/20.03.setup/gl84_final.log',
         ]  
     plot_multiple_psnr_curves(log_files)
     plot_multiple_pixel_loss_curves(log_files)
