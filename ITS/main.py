@@ -77,11 +77,11 @@ if __name__ == '__main__':
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='/home/cc/Documents/FocalNet/ITS/results/mean/full/model.pkl')
+    parser.add_argument('--test_model', type=str, default='results/gl42/Best.pkl')
     parser.add_argument('--save_image', type=bool, default=False, choices=[True, False])
 
     args = parser.parse_args()
-    args.model_save_dir = os.path.join(result_folder, 'mean', 'full')
+    args.model_save_dir = os.path.join(result_folder, 'yc', 'full')
     args.result_dir = os.path.join(result_folder, args.model_name, 'test')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)

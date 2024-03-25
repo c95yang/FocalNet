@@ -1,10 +1,8 @@
 import math
 import copy
-import os
 from functools import partial
-from typing import Optional, Callable, Any
+from typing import Any
 from collections import OrderedDict
-from torchvision.transforms import functional as FT
 
 import torch
 import torch.nn as nn
@@ -474,16 +472,16 @@ class SS2D(nn.Module):
     def __init__(
         self,
         # basic dims ===========
-        d_model=96,
-        d_state=16,
-        ssm_ratio=2.0,
-        dt_rank="auto",
-        act_layer=nn.SiLU,
+        d_model,
+        d_state,
+        ssm_ratio,
+        dt_rank,
+        act_layer,
         # dwconv ===============
-        d_conv=3, # < 2 means no conv 
-        conv_bias=True,
+        d_conv, # < 2 means no conv 
+        conv_bias,
         # ======================
-        dropout=0.0,
+        dropout,
         bias=False,
         # dt init ==============
         dt_min=0.001,
@@ -504,7 +502,6 @@ class SS2D(nn.Module):
             initialize=initialize, forward_type=forward_type,
         )
 
-        # only used to run previous version
         if forward_type.startswith("xv"):
             self.__initxv__(**kwargs)
             return
@@ -515,17 +512,17 @@ class SS2D(nn.Module):
     def __initv2__(
         self,
         # basic dims ===========
-        d_model=96,
-        d_state=16,
-        ssm_ratio=2.0,
-        dt_rank="auto",
-        act_layer=nn.SiLU,
+        d_model,
+        d_state,
+        ssm_ratio,
+        dt_rank,
+        act_layer,
         # dwconv ===============
-        d_conv=3, # < 2 means no conv 
-        conv_bias=True,
+        d_conv, # < 2 means no conv 
+        conv_bias,
         # ======================
-        dropout=0.0,
-        bias=False,
+        dropout,
+        bias,
         # dt init ==============
         dt_min=0.001,
         dt_max=0.1,
@@ -974,25 +971,25 @@ class SS2D(nn.Module):
 class VSSBlock(nn.Module):
     def __init__(
         self,
-        hidden_dim: int = 0,
-        drop_path: float = 0,
-        norm_layer: nn.Module = nn.LayerNorm,
+        hidden_dim: int,
+        drop_path: float,
+        norm_layer: nn.Module,
         # =============================
-        ssm_d_state: int = 16,
-        ssm_ratio=2.0,
-        ssm_dt_rank: Any = "auto",
-        ssm_act_layer=nn.SiLU,
-        ssm_conv: int = 3,
-        ssm_conv_bias=True,
-        ssm_drop_rate: float = 0,
-        ssm_init="v0",
-        forward_type="v2",
+        ssm_d_state: int,
+        ssm_ratio,
+        ssm_dt_rank: Any,
+        ssm_act_layer,
+        ssm_conv: int,
+        ssm_conv_bias,
+        ssm_drop_rate: float,
+        ssm_init,
+        forward_type,
         # =============================
-        mlp_ratio=4.0,
-        mlp_act_layer=nn.GELU,
-        mlp_drop_rate: float = 0.0,
+        mlp_ratio,
+        mlp_act_layer,
+        mlp_drop_rate: float,
         # =============================
-        use_checkpoint: bool = False,
+        use_checkpoint: bool,
         post_norm: bool = False,
         **kwargs,
     ):
@@ -1073,7 +1070,7 @@ class VSSG(nn.Module):
         ssm_conv_bias=True,
         ssm_drop_rate=0.0, 
         ssm_init="v0",
-        forward_type="v2", # "xv1", "xv2", "xv3", "xv4", "xv5", "xv6", "xv61"
+        forward_type="v2", 
         # =========================
         mlp_ratio=4.0,
         mlp_act_layer="gelu",
@@ -1081,7 +1078,7 @@ class VSSG(nn.Module):
         # =========================
         drop_path_rate=0.1, 
         patch_norm=True, 
-        norm_layer="LN", # "BN"
+        norm_layer="LN", 
         use_checkpoint=False,  
         **kwargs,
     ):
@@ -1111,16 +1108,16 @@ class VSSG(nn.Module):
 
         self.layers = nn.ModuleList()
 
-        self.patch_embed_global = self._make_patch_embed(in_chans, self.dim, patch_size_global, patch_norm, norm_layer)
-        self.patch_unembed_global = self._make_patch_unembed(self.dim, in_chans, patch_size_global)
+        self.patch_embed_global = self._make_patch_embed(in_chans//2, self.dim//2, patch_size_global, patch_norm, norm_layer)
+        self.patch_unembed_global = self._make_patch_unembed(self.dim//2, in_chans//2, patch_size_global)
 
         if self.gl_merge:
-            self.patch_embed_local = self._make_patch_embed(in_chans, self.dim, patch_size_local, patch_norm, norm_layer)
-            self.patch_unembed_local = self._make_patch_unembed(self.dim, in_chans, patch_size_local)
+            self.patch_embed_local = self._make_patch_embed(in_chans//2, self.dim//2, patch_size_local, patch_norm, norm_layer)
+            self.patch_unembed_local = self._make_patch_unembed(self.dim//2, in_chans//2, patch_size_local)
 
             for i_layer in range(self.num_layers):
                 self.layers.append(GlobalLocalScan(
-                    dim = self.dim,
+                    dim = self.dim//2,
                     drop_path = dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                     use_checkpoint=use_checkpoint,
                     norm_layer=norm_layer,
@@ -1193,16 +1190,29 @@ class VSSG(nn.Module):
         )
 
     def forward_gl(self, x: torch.Tensor):
-        x_global = self.patch_embed_global(x) # bigger conv kernel, resulting in smaller feature map ([4, 64, 64, 96])
-        x_local = self.patch_embed_local(x) # smaller conv kernel, resulting in bigger feature map ([4, 128, 128, 96])
+        x_global, x_local = torch.chunk(x, 2, dim=1)
+        # print(x_global.shape, x_local.shape)
+
+        x_global = self.patch_embed_global(x_global) # bigger conv kernel, resulting in smaller feature map 
+        x_local = self.patch_embed_local(x_local) # smaller conv kernel, resulting in bigger feature map 
+        # print(x_global.shape, x_local.shape)
 
         for i, layer in enumerate(self.layers):
             x_global, x_local = layer(x_global, x_local)
+            # print(x_global.shape, x_local.shape)
 
         x_global = self.patch_unembed_global(x_global)
         x_local = self.patch_unembed_local(x_local)
-        #x = self.scale * x_global + x_local 
-        x = x_global + x_local 
+        # print(x_global.shape, x_local.shape)
+
+        #----------------------------------
+        # x = self.scale * x_global + x_local 
+        #----------------------------------
+        # x = x_global + x_local 
+        #----------------------------------
+
+        x = torch.cat([x_global, x_local], dim=1)
+        # print(x.shape)
         return x
     
     def forward_g(self, x: torch.Tensor):
@@ -1248,24 +1258,24 @@ class VSSG(nn.Module):
 class GlobalLocalScan(nn.Module):
     def __init__(            
             self,
-            dim=96, 
-            drop_path=[0.1, 0.1], 
-            use_checkpoint=False, 
-            norm_layer=nn.LayerNorm,
+            dim, 
+            drop_path, 
+            use_checkpoint, 
+            norm_layer,
             # ===========================
-            ssm_d_state=16,
-            ssm_ratio=2.0,
-            ssm_dt_rank="auto",       
-            ssm_act_layer=nn.SiLU,
-            ssm_conv=3,
-            ssm_conv_bias=True,
-            ssm_drop_rate=0.0, 
-            ssm_init="v0",
-            forward_type="v2",
+            ssm_d_state,
+            ssm_ratio,
+            ssm_dt_rank,       
+            ssm_act_layer,
+            ssm_conv,
+            ssm_conv_bias,
+            ssm_drop_rate, 
+            ssm_init,
+            forward_type,
             # ===========================
-            mlp_ratio=4.0,
-            mlp_act_layer=nn.GELU,
-            mlp_drop_rate=0.0,
+            mlp_ratio,
+            mlp_act_layer,
+            mlp_drop_rate,
             **kwargs,):
         super(GlobalLocalScan, self).__init__()
         depth = len(drop_path)
@@ -1326,24 +1336,24 @@ class GlobalLocalScan(nn.Module):
 class GlobalScan(nn.Module):
     def __init__(            
             self,
-            dim=96, 
-            drop_path=[0.1, 0.1], 
-            use_checkpoint=False, 
-            norm_layer=nn.LayerNorm,
+            dim, 
+            drop_path, 
+            use_checkpoint, 
+            norm_layer,
             # ===========================
-            ssm_d_state=16,
-            ssm_ratio=2.0,
-            ssm_dt_rank="auto",       
-            ssm_act_layer=nn.SiLU,
-            ssm_conv=3,
-            ssm_conv_bias=True,
-            ssm_drop_rate=0.0, 
-            ssm_init="v0",
-            forward_type="v2",
+            ssm_d_state,
+            ssm_ratio,
+            ssm_dt_rank,       
+            ssm_act_layer,
+            ssm_conv,
+            ssm_conv_bias,
+            ssm_drop_rate, 
+            ssm_init,
+            forward_type,
             # ===========================
-            mlp_ratio=4.0,
-            mlp_act_layer=nn.GELU,
-            mlp_drop_rate=0.0,
+            mlp_ratio,
+            mlp_act_layer,
+            mlp_drop_rate,
             **kwargs,):
         super(GlobalScan, self).__init__()
         depth = len(drop_path)

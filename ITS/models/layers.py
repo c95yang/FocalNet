@@ -50,7 +50,7 @@ class BasicConv_G(nn.Module):
         layers = list()
         if transpose:
             padding = kernel_size // 2 -1
-            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=biasc))
+            layers.append(nn.ConvTranspose2d(in_channel, out_channel, kernel_size, padding=padding, stride=stride, bias=bias))
         else:
             layers.append(GhostModule(in_channel, out_channel, stride=stride, relu=False))
         if norm:

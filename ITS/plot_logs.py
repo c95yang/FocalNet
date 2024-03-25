@@ -2,12 +2,16 @@ import re
 import os
 import matplotlib.pyplot as plt
 
+psnr_threshold = 32
+pixel_threshold = 0.05
+fft_threshold = 1.5
+
 def clamp_loss_values(loss_values, threshold=5.0, upper=False):
     if upper:
         return [max(loss, threshold) for loss in loss_values]
     return [min(loss, threshold) for loss in loss_values]
 
-def parse_log_file(log_file):
+def parse_psnr_from_log(log_file):
     psnr_values = []
     timestamps = []
 
@@ -67,16 +71,15 @@ def plot_multiple_psnr_curves(log_files):
     for log_file in log_files:
         filename = os.path.basename(log_file)
         filename = os.path.splitext(filename)[0]  # Remove file extension
-        timestamps, psnr_values = parse_log_file(log_file)
-        psnr_values = clamp_loss_values(psnr_values, threshold=30, upper=True)
+        timestamps, psnr_values = parse_psnr_from_log(log_file)
+        psnr_values = clamp_loss_values(psnr_values, threshold=psnr_threshold, upper=True)
         plt.plot(timestamps, psnr_values, marker='o', linestyle='-', label=filename, markersize=2, linewidth=1)
 
-        # Display the last PSNR value
         last_psnr = psnr_values[-1]
         last_timestamp = timestamps[-1]
         plt.text(last_timestamp, last_psnr, f' {last_psnr:.2f}', fontsize=8, verticalalignment='bottom')
 
-    plt.title('PSNR Curves from Multiple Log Files')
+    plt.title('PSNR Over Epochs')
     plt.xlabel('EPOCH')
     plt.ylabel('PSNR (dB)')
     plt.legend()
@@ -89,7 +92,7 @@ def plot_multiple_pixel_loss_curves(log_files):
         filename = os.path.basename(log_file)
         filename = os.path.splitext(filename)[0]  # Remove file extension
         timestamps, pixel_loss = extract_pixel_from_log(log_file)
-        pixel_loss = clamp_loss_values(pixel_loss, threshold=0.05)
+        pixel_loss = clamp_loss_values(pixel_loss, threshold=pixel_threshold)
 
         timestamps = timestamps[::200]
         pixel_loss = pixel_loss[::200]
@@ -109,7 +112,7 @@ def plot_multiple_fft_loss_curves(log_files):
         filename = os.path.basename(log_file)
         filename = os.path.splitext(filename)[0]  # Remove file extension
         timestamps, fft_loss = extract_fft_from_log(log_file)
-        fft_loss = clamp_loss_values(fft_loss, threshold=1.5)
+        fft_loss = clamp_loss_values(fft_loss, threshold=fft_threshold)
 
         timestamps = timestamps[::200]
         fft_loss = fft_loss[::200]
@@ -124,10 +127,11 @@ def plot_multiple_fft_loss_curves(log_files):
 
 if __name__ == '__main__':
     log_files = [
+        '/home/cc/Documents/20.03.setup/tmp/mlp1_chunkgl.log',
         '/home/cc/Documents/20.03.setup/tmp/mlp4.log',
         '/home/cc/Documents/20.03.setup/tmp/mlp2.log',
         '/home/cc/Documents/20.03.setup/tmp/mlp1.log',
-        '/home/cc/Documents/20.03.setup/tmp/mlp0.log',
+        '/home/cc/Documents/20.03.setup/mlp0_stopped.log',
         '/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
         '/home/cc/Documents/20.03.setup/ps_gl84t_stopped.log',
         '/home/cc/Documents/20.03.setup/ps_g4_final.log',
