@@ -1169,17 +1169,11 @@ class VSSG(nn.Module):
     
     @staticmethod
     def random_mask_generator(height, width, percent_zero):
-        num_zero_pixels = int((percent_zero / 100) * height * width)
-        mask = torch.ones(height, width, device='cuda')
-
-        #zero_indices = [(random.randint(0, height - 1), random.randint(0, width - 1)) for _ in range(num_zero_pixels)]
-        all_indices = [(i, j) for i in range(height) for j in range(width)]
-        random.shuffle(all_indices)
-        zero_indices = all_indices[:num_zero_pixels]
-
-        for i, j in zero_indices:
-            mask[i, j] = 0
-        return mask
+        N = height * width
+        mask = torch.ones(N, device='cuda')
+        zero_indices = random.sample(range(N), int((percent_zero / 100) * N))  
+        mask[zero_indices] = 0
+        return mask.view(height, width)
 
     @staticmethod
     def _make_patch_embed(in_chans, embed_dim, patch_size, patch_norm=True, norm_layer=nn.LayerNorm):
@@ -1208,12 +1202,16 @@ class VSSG(nn.Module):
         if self.train_enabled:
             _, h, w, _ = x_global.shape
             mask_g = self.random_mask_generator(h, w, percent_zero = 5)
+            #print(mask_g.shape)
+            #print(mask_g)
             x_global *= mask_g.unsqueeze(-1)
 
         x_local = self.patch_embed_local(x_local)  # smaller conv kernel, resulting in bigger feature map 
         if self.train_enabled:
             _, h, w, _ = x_local.shape
             mask_l = self.random_mask_generator(h, w, percent_zero = 5)
+            #print(mask_l.shape)
+            #print(mask_l)
             x_local *= mask_l.unsqueeze(-1)
 
         for i, layer in enumerate(self.layers):
