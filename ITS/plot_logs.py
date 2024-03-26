@@ -2,7 +2,7 @@ import re
 import os
 import matplotlib.pyplot as plt
 
-psnr_bound = (33.5, 50)
+psnr_bound = (33, 50)
 pixel_bound = (0, 0.06)
 fft_bound = (0, 1.7)
 
@@ -126,10 +126,11 @@ def plot_multiple_fft_loss_curves(log_files):
 
 if __name__ == '__main__':
     log_files = [
-        '/home/cc/Documents/20.03.setup/tmp/mlp1_chunkgl.log',
-        '/home/cc/Documents/20.03.setup/tmp/mlp4.log',
-        '/home/cc/Documents/20.03.setup/tmp/mlp2.log',
-        '/home/cc/Documents/20.03.setup/tmp/mlp1.log',
+        '/home/cc/Documents/20.03.setup/tmp/mlp1_mask.log',
+        #'/home/cc/Documents/20.03.setup/mlp1_chunkgl_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp4_final.log',
+        '/home/cc/Documents/20.03.setup/mlp2_final.log',
+        '/home/cc/Documents/20.03.setup/mlp1_final.log',
         #'/home/cc/Documents/20.03.setup/mlp0_stopped.log',
         #'/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
         #'/home/cc/Documents/20.03.setup/ps_gl84t_stopped.log',

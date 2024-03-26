@@ -54,7 +54,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    result_folder = 'results/'
+    result_folder = 'results_mask/'
     parser = argparse.ArgumentParser()
 
     # Directories
@@ -81,7 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_image', type=bool, default=False, choices=[True, False])
 
     args = parser.parse_args()
-    args.model_save_dir = os.path.join(result_folder, 'yc', 'full')
+    args.model_save_dir = os.path.join(result_folder, 'yc', 'gl42_1mlp_mask')
     args.result_dir = os.path.join(result_folder, args.model_name, 'test')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
