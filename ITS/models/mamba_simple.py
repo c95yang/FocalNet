@@ -48,20 +48,20 @@ class Mamba(nn.Module):
         device=None,
         dtype=None,
     ):
-        factory_kwargs = {"device": device, "dtype": dtype}
+        factory_kwargs = {"device": "cuda", "dtype": dtype}
         super().__init__()
         self.d_model = d_model
         self.d_state = d_state
         self.d_conv = d_conv
         self.expand = expand
         self.d_inner = int(self.expand * self.d_model)
-        self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank #TODO: what is dt_rank
+        self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
         self.use_fast_path = use_fast_path
         self.layer_idx = layer_idx
 
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
 
-        self.conv1d = nn.Conv1d( #TODO:look further into this
+        self.conv1d = nn.Conv1d(
             in_channels=self.d_inner,
             out_channels=self.d_inner,
             bias=conv_bias,
@@ -108,7 +108,7 @@ class Mamba(nn.Module):
         ).contiguous()
         A_log = torch.log(A)  # Keep A_log in fp32
         self.A_log = nn.Parameter(A_log)
-        self.A_log._no_weight_decay = True #TODO: why this initialization of A?
+        self.A_log._no_weight_decay = True
 
         # D "skip" parameter
         self.D = nn.Parameter(torch.ones(self.d_inner, device=device))  # Keep in fp32
@@ -212,7 +212,7 @@ class Mamba(nn.Module):
         x, z = xz.chunk(2, dim=-1)  # (B D)
 
         # Conv step
-        if causal_conv1d_update is None:  #TODO: is it shift conv?
+        if causal_conv1d_update is None:
             conv_state.copy_(torch.roll(conv_state, shifts=-1, dims=-1))  # Update state (B D W)
             conv_state[:, :, -1] = x
             x = torch.sum(conv_state * rearrange(self.conv1d.weight, "d 1 w -> d w"), dim=-1)  # (B D)

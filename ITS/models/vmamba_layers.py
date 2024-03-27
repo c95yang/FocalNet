@@ -1,3 +1,4 @@
+from mamba_ssm import Mamba
 import math
 import copy
 from functools import partial
@@ -23,7 +24,6 @@ try:
     from .csm_triton import CrossScanTriton, CrossMergeTriton, CrossScanTriton1b1
 except:
     from csm_triton import CrossScanTriton, CrossMergeTriton, CrossScanTriton1b1
-
 
 # pytorch cross scan =============
 class CrossScan(torch.autograd.Function):
@@ -68,114 +68,6 @@ class CrossMerge(torch.autograd.Function):
         xs[:, 1] = x.view(B, C, H, W).transpose(dim0=2, dim1=3).flatten(2, 3)
         xs[:, 2:4] = torch.flip(xs[:, 0:2], dims=[-1])
         xs = xs.view(B, 4, C, H, W)
-        return xs
-
-# HELP Function cross scan =============
-
-def flip_odd_rows(x):
-    odd_rows_flipped = torch.flip(x[:, :, 1::2, :], dims=[2, 3])
-    even_rows = x[:, :, ::2, :]
-    # Concatenate even rows followed by the odd rows in the original order
-    result = torch.zeros(x.shape, device='cuda')
-    result[:,:,::2, :] = even_rows  # Index every second row, starting from 0
-    result[:,:,1::2, :] = torch.flip(odd_rows_flipped, dims=[2] ) # Index every second row, starting from 1 
-    return result
-
-def flip_odd_columns(x):
-    even_cols_flipped = torch.flip(x[:, :, :, 1::2], dims=[2, 3])
-    odd_cols = x[:, :, :, ::2]
-    # Concatenate even columns followed by the odd columns in the original order
-    result = torch.zeros(x.shape, device='cuda')
-    result[:, :, :, ::2] = odd_cols # Index every second column, starting from 0
-    result[:, :, :, 1::2] = torch.flip(even_cols_flipped, dims=[3]) # Index every second column, starting from 1
-    return result
-
-# pytorch cross scan snake=============
-class CrossScanSnake(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x: torch.Tensor):
-        B, C, H, W = x.shape
-        ctx.shape = (B, C, H, W)
-
-        # test = torch.tensor([[[[ 1,  2,  3,  4],[ 5,  6,  7,  8],[ 9, 10, 11, 12],[13, 14, 15, 16]]]])
-        # b,c,h,w=test.shape
-
-        # ts = test.new_empty((b, 4, c, h*w))
-
-        # ts[:, 0] = flip_odd_rows(test).flatten(2, 3)
-        # ts[:, 1] = flip_odd_columns(test).transpose(dim0=2, dim1=3).flatten(2, 3)
-
-        # test_flipped = torch.flip(test, dims=[-2, -1])
-        # ts[:, 2] = flip_odd_rows(test_flipped).flatten(2, 3)
-        # ts[:, 3] = flip_odd_columns(test_flipped).transpose(dim0=2, dim1=3).flatten(2, 3)
-
-        xs = x.new_empty((B, 4, C, H * W))
-        xs[:, 0] = flip_odd_rows(x).flatten(-2, -1).contiguous()
-        xs[:, 1] = flip_odd_columns(x).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-
-        x_flipped = torch.flip(x, dims=[-2, -1])
-        xs[:, 2] = flip_odd_rows(x_flipped).flatten(-2, -1).contiguous()
-        xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-
-        return xs
-    
-    @staticmethod
-    def backward(ctx, ys: torch.Tensor):
-        # out: (b, k, d, l)
-        B, C, H, W = ctx.shape
-        ys = ys.view(B, 4, C, H, W)
-        y = ys.new_empty((B, 4, C, H*W))
-        y[:,0] = flip_odd_rows(ys[:,0]).flatten(-2, -1).contiguous()
-        y[:,1] = flip_odd_columns(ys[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
-        y[:,2] = flip_odd_rows(ys[:,2]).flatten(-2, -1).flip(-1).contiguous()
-        y[:,3] = flip_odd_rows(ys[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-
-        y = y[:,0] + y[:,1] + + y[:,2] + y[:,3]
-        return y.view(B, C, H, W)
-
-
-class CrossMergeSnake(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, ys: torch.Tensor):
-        B, K, D, H, W = ys.shape #([4, 4, 192, 64, 64])
-        ctx.shape = (H, W)
-
-        # test = torch.tensor([[[1,  2,  3,  4,  8,  7,  6,  5, 9, 10, 11, 12, 16, 15, 14, 13]],
-        #                     [[ 1,  5,  9, 13, 14, 10,  6,  2,  3,  7, 11, 15, 16, 12,  8,  4]],
-        #                     [[16, 15, 14, 13,  9, 10, 11, 12,  8,  7,  6,  5,  1,  2,  3,  4]],
-        #                     [[16, 12,  8,  4,  3,  7, 11, 15, 14, 10,  6,  2,  1,  5,  9, 13]]]).reshape(1, 4, 1, 4, 4)
-        # print(test)
-        # b, k, d, h, w=test.shape
-        # ts = test.new_empty((b, k, d, h*w))
-        # ts[:,0] = flip_odd_rows(test[:,0]).flatten(-2, -1).contiguous()
-        # ts[:,1] = flip_odd_columns(test[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
-        # ts[:,2] = flip_odd_rows(test[:,2]).flatten(-2, -1).flip(-1).contiguous()
-        # ts[:,3] = flip_odd_rows(test[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-
-        y = ys.new_empty((B, K, D, H*W))
-        y[:,0] = flip_odd_rows(ys[:,0]).flatten(-2, -1).contiguous()
-        y[:,1] = flip_odd_columns(ys[:,1].transpose(dim0=-2, dim1=-1)).flatten(-2, -1).contiguous()
-        y[:,2] = flip_odd_rows(ys[:,2]).flatten(-2, -1).flip(-1).contiguous()
-        y[:,3] = flip_odd_rows(ys[:,3].flip(-2)).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous()
-        y = y[:,0] + y[:,1] + y[:,2] + y[:,3]
-        return y
-    
-    @staticmethod
-    def backward(ctx, x: torch.Tensor):
-        # B, D, L = x.shape
-        # out: (b, k, d, l)
-        H, W = ctx.shape
-        B, C, L = x.shape
-
-        x = x.reshape(B, C, H, W)
-        xs = x.new_empty((B, 4, C, H, W))
-
-        xs[:, 0] = flip_odd_rows(x).flatten(-2, -1).contiguous().reshape(B, C, H, W)
-        xs[:, 1] = flip_odd_columns(x).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous().reshape(B, C, H, W)
-
-        x_flipped = torch.flip(x, dims=[-2, -1])
-        xs[:, 2] = flip_odd_rows(x_flipped).flatten(-2, -1).contiguous().reshape(B, C, H, W)
-        xs[:, 3] = flip_odd_columns(x_flipped).transpose(dim0=-2, dim1=-1).flatten(-2, -1).contiguous().reshape(B, C, H, W)
         return xs
 
 # import selective scan ==============================
@@ -412,32 +304,6 @@ def selective_scan_flop_jit(inputs, outputs):
     N = inputs[2].type().sizes()[1] # A
     flops = flops_selective_scan_fn(B=B, L=L, D=D, N=N, with_D=True, with_Z=False)
     return flops
-
-class PatchMerging2D(nn.Module):
-    def __init__(self, dim, out_dim=-1, norm_layer=nn.LayerNorm):
-        super().__init__()
-        self.dim = dim
-        self.reduction = nn.Linear(4 * dim, (2 * dim) if out_dim < 0 else out_dim, bias=False, device='cuda')
-        self.norm = norm_layer(4 * dim, device='cuda')
-
-    @staticmethod
-    def _patch_merging_pad(x: torch.Tensor):
-        H, W, _ = x.shape[-3:]
-        if (W % 2 != 0) or (H % 2 != 0):
-            x = F.pad(x, (0, 0, 0, W % 2, 0, H % 2))
-        x0 = x[..., 0::2, 0::2, :]  # ... H/2 W/2 C
-        x1 = x[..., 1::2, 0::2, :]  # ... H/2 W/2 C
-        x2 = x[..., 0::2, 1::2, :]  # ... H/2 W/2 C
-        x3 = x[..., 1::2, 1::2, :]  # ... H/2 W/2 C
-        x = torch.cat([x0, x1, x2, x3], -1)  # ... H/2 W/2 4*C
-        return x
-
-    def forward(self, x):
-        x = self._patch_merging_pad(x)
-        x = self.norm(x)
-        x = self.reduction(x)
-
-        return x
     
 class Permute(nn.Module):
     def __init__(self, *args):
@@ -446,7 +312,6 @@ class Permute(nn.Module):
 
     def forward(self, x: torch.Tensor):
         return x.permute(*self.args)
-
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.,channels_first=False):
@@ -504,12 +369,8 @@ class SS2D(nn.Module):
             initialize=initialize, forward_type=forward_type,
         )
 
-        if forward_type.startswith("xv"):
-            self.__initxv__(**kwargs)
-            return
-        else:
-            self.__initv2__(**kwargs)
-            return
+        self.__initv2__(**kwargs)
+        return
 
     def __initv2__(
         self,
@@ -857,6 +718,19 @@ class VSSG(nn.Module):
         self.mask_enabled = mask_enabled
         #self.scale = nn.Parameter(torch.ones(in_chans, 1, 1, device='cuda'))
 
+        self.ssm_d_state=ssm_d_state
+        self.ssm_ratio=ssm_ratio
+        self.ssm_dt_rank=ssm_dt_rank
+        self.ssm_conv=ssm_conv
+        self.ssm_conv_bias=ssm_conv_bias
+        self.ssm_drop_rate=ssm_drop_rate
+        self.ssm_init=ssm_init
+        self.forward_type=forward_type
+        self.mlp_ratio=mlp_ratio
+        self.mlp_act_layer=mlp_act_layer
+        self.mlp_drop_rate=mlp_drop_rate
+        self.use_checkpoint=use_checkpoint
+
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
         
         _NORMLAYERS = dict(
@@ -905,6 +779,7 @@ class VSSG(nn.Module):
                     mlp_act_layer=mlp_act_layer,
                     mlp_drop_rate=mlp_drop_rate,
                 ))
+
         else:
             for i_layer in range(self.num_layers):
                 self.layers.append(GlobalScan(
@@ -939,13 +814,13 @@ class VSSG(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
     
-    @staticmethod
-    def random_mask_generator(height, width, percent_zero):
-        N = height * width
-        mask = torch.ones(N, device='cuda')
-        zero_indices = random.sample(range(N), int((percent_zero / 100) * N))  
-        mask[zero_indices] = 0
-        return mask.view(height, width)
+    # @staticmethod
+    # def random_mask_generator(height, width, percent_zero):
+    #     N = height * width
+    #     mask = torch.ones(N, device='cuda')
+    #     zero_indices = random.sample(range(N), int((percent_zero / 100) * N))  
+    #     mask[zero_indices] = 0
+    #     return mask.view(height, width)
 
     @staticmethod
     def _make_patch_embed(in_chans, embed_dim, patch_size, patch_norm=True, norm_layer=nn.LayerNorm):
@@ -971,16 +846,16 @@ class VSSG(nn.Module):
         # x_global, x_local = torch.chunk(x, 2, dim=1)
 
         x_global = self.patch_embed_global(x_global)  # bigger conv kernel, resulting in smaller feature map 
-        if self.train_enabled & self.mask_enabled:
-            _, h, w, _ = x_global.shape
-            mask_g = self.random_mask_generator(h, w, percent_zero = 5)
-            x_global *= mask_g.unsqueeze(-1)
+        # if self.train_enabled & self.mask_enabled:
+        #     _, h, w, _ = x_global.shape
+        #     mask_g = self.random_mask_generator(h, w, percent_zero = 5)
+        #     x_global *= mask_g.unsqueeze(-1)
 
         x_local = self.patch_embed_local(x_local)  # smaller conv kernel, resulting in bigger feature map 
-        if self.train_enabled & self.mask_enabled:
-            _, h, w, _ = x_local.shape
-            mask_l = self.random_mask_generator(h, w, percent_zero = 5)
-            x_local *= mask_l.unsqueeze(-1)
+        # if self.train_enabled & self.mask_enabled:
+        #     _, h, w, _ = x_local.shape
+        #     mask_l = self.random_mask_generator(h, w, percent_zero = 5)
+        #     x_local *= mask_l.unsqueeze(-1)
 
         for i, layer in enumerate(self.layers):
             x_global, x_local = layer(x_global, x_local)
@@ -1007,17 +882,45 @@ class VSSG(nn.Module):
     
     def forward(self, x: torch.Tensor):
         if self.gl_merge:
-            return self.forward_gl(x)
+            x = self.forward_gl(x)
         else:
-            return self.forward_g(x)
-        
-    def train(self, mode=True):
-        self.train_enabled = True
-        super(VSSG, self).train(mode)
+            x = self.forward_g(x)
 
-    def eval(self):
-        self.train_enabled = False
-        super(VSSG, self).eval()
+        #------------------------------channel ssm--------------------------------
+        b, c, h, w = x.shape
+
+        x = nn.MaxPool2d(kernel_size=4, stride=4)(x)
+        x_fwd = x.flatten(2).contiguous()
+        x_bwd = x_fwd.flip(-2).contiguous()
+        _, _, n = x_fwd.shape
+        #print(x_fwd[0,:,0], x_bwd[0,:,0])
+
+        blocks_fwd = []
+        blocks_fwd.append(Mamba(d_model=n).to('cuda'))
+        layers_fwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_fwd)))
+
+        x_fwd = layers_fwd(x_fwd).view(b, c, h//4, w//4).contiguous()
+        x_fwd = nn.Upsample(scale_factor=4, mode='bilinear')(x_fwd)
+
+        blocks_bwd = []
+        blocks_bwd.append(Mamba(d_model=n).to('cuda'))
+        layers_bwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_bwd)))
+
+        x_bwd = layers_bwd(x_bwd).view(b, c, h//4, w//4).flip(-2).contiguous()
+        x_bwd = nn.Upsample(scale_factor=4, mode='bilinear')(x_bwd)
+
+        x = x_fwd + x_bwd
+        #------------------------------channel ssm--------------------------------
+
+        return x
+        
+    # def train(self, mode=True):
+    #     self.train_enabled = True
+    #     super(VSSG, self).train(mode)
+
+    # def eval(self):
+    #     self.train_enabled = False
+    #     super(VSSG, self).eval()
 
     def flops(self, x):
         shape = x.shape[1:]
@@ -1169,9 +1072,6 @@ class GlobalScan(nn.Module):
         self.seq_global = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks)))
 
     def forward(self, x_global):
-        #x_global = self.seq_global(x_global) + x_global
         x_global = self.seq_global(x_global)
         return x_global
-
-
 

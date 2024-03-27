@@ -2,11 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .layers import *
-from vim import models_mamba as vim
 
 torch.manual_seed(1234)
 torch.cuda.manual_seed_all(1234)
-
 
 class EBlock(nn.Module):
     def __init__(self, out_channel, num_res):
