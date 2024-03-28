@@ -93,8 +93,8 @@ def plot_multiple_pixel_loss_curves(log_files):
         timestamps, pixel_loss = extract_pixel_from_log(log_file)
         pixel_loss = clamp_loss_values(pixel_loss, bound=pixel_bound)
 
-        timestamps = timestamps[::200]
-        pixel_loss = pixel_loss[::200]
+        timestamps = timestamps[::100]
+        pixel_loss = pixel_loss[::100]
 
         plt.plot(timestamps, pixel_loss, marker='o', linestyle='-', label=filename, markersize=0.1, linewidth=1)
 
@@ -113,8 +113,8 @@ def plot_multiple_fft_loss_curves(log_files):
         timestamps, fft_loss = extract_fft_from_log(log_file)
         fft_loss = clamp_loss_values(fft_loss, bound=fft_bound)
 
-        timestamps = timestamps[::200]
-        fft_loss = fft_loss[::200]
+        timestamps = timestamps[::100]
+        fft_loss = fft_loss[::100]
 
         plt.plot(timestamps, fft_loss, marker='o', linestyle='-', label=filename, markersize=0.1, linewidth=1)
 
@@ -131,8 +131,8 @@ if __name__ == '__main__':
         #'/home/cc/Documents/20.03.setup/tmp/mlp1_mask10.log',
         #'/home/cc/Documents/20.03.setup/tmp/mlp1_mask.log',
         #'/home/cc/Documents/20.03.setup/mlp1_chunkgl_stopped.log',
-        '/home/cc/Documents/20.03.setup/mlp4_final.log',
-        '/home/cc/Documents/20.03.setup/mlp2_final.log',
+        #'/home/cc/Documents/20.03.setup/mlp4_final.log',
+        #'/home/cc/Documents/20.03.setup/mlp2_final.log',
         '/home/cc/Documents/20.03.setup/mlp1_final.log',
         #'/home/cc/Documents/20.03.setup/mlp0_stopped.log',
         #'/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
@@ -141,7 +141,7 @@ if __name__ == '__main__':
         #'/home/cc/Documents/20.03.setup/ps_gl84_final.log',
         #'/home/cc/Documents/20.03.setup/g4_final.log',
         #'/home/cc/Documents/20.03.setup/g2_final.log',
-        '/home/cc/Documents/20.03.setup/gl42_final.log',
+        #'/home/cc/Documents/20.03.setup/gl42_final.log',
         #'/home/cc/Documents/20.03.setup/gl44_final.log',
         #'/home/cc/Documents/20.03.setup/gl84_final.log',
         ]  

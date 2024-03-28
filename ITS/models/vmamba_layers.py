@@ -886,33 +886,35 @@ class VSSG(nn.Module):
         else:
             x = self.forward_g(x)
 
-        #------------------------------channel ssm--------------------------------
+        res = x
+
+        #------------------------------channel ssm--------------------------------batch, length, dim
         b, c, h, w = x.shape
 
-        x = nn.MaxPool2d(kernel_size=4, stride=4)(x)
+        scale = 4
+
+        x = nn.MaxPool2d(kernel_size=scale, stride=scale)(x)
         x_fwd = x.flatten(2).contiguous()
-        x_bwd = x_fwd.flip(-2).contiguous()
+        x_bwd = x_fwd.flip(1).contiguous()
         _, _, n = x_fwd.shape
         #print(x_fwd[0,:,0], x_bwd[0,:,0])
 
         blocks_fwd = []
         blocks_fwd.append(Mamba(d_model=n).to('cuda'))
         layers_fwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_fwd)))
-
-        x_fwd = layers_fwd(x_fwd).view(b, c, h//4, w//4).contiguous()
-        x_fwd = nn.Upsample(scale_factor=4, mode='bilinear')(x_fwd)
+        x_fwd = layers_fwd(x_fwd).view(b, c, h//scale, w//scale).contiguous()
+        x_fwd = nn.Upsample(scale_factor=scale, mode='bilinear')(x_fwd)
 
         blocks_bwd = []
         blocks_bwd.append(Mamba(d_model=n).to('cuda'))
         layers_bwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_bwd)))
-
-        x_bwd = layers_bwd(x_bwd).view(b, c, h//4, w//4).flip(-2).contiguous()
-        x_bwd = nn.Upsample(scale_factor=4, mode='bilinear')(x_bwd)
+        x_bwd = layers_bwd(x_bwd).view(b, c, h//scale, w//scale).flip(1).contiguous()
+        x_bwd = nn.Upsample(scale_factor=scale, mode='bilinear')(x_bwd)
 
         x = x_fwd + x_bwd
         #------------------------------channel ssm--------------------------------
 
-        return x
+        return x + res
         
     # def train(self, mode=True):
     #     self.train_enabled = True
