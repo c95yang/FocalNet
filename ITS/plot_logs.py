@@ -126,10 +126,12 @@ def plot_multiple_fft_loss_curves(log_files):
 
 if __name__ == '__main__':
     log_files = [
-        '/home/cc/Documents/20.03.setup/tmp/mlp1_channel_ssm.log',
-        #'/home/cc/Documents/20.03.setup/tmp/mlp1_mask20.log',
-        #'/home/cc/Documents/20.03.setup/tmp/mlp1_mask10.log',
-        #'/home/cc/Documents/20.03.setup/tmp/mlp1_mask.log',
+        '/home/cc/Documents/20.03.setup/tmp/mambass2d.log',
+        '/home/cc/Documents/20.03.setup/mlp1_scaled_stopped.log',
+        #'/home/cc/Documents/20.03.setup/mlp1_mask25_stopped.log',
+        #'/home/cc/Documents/20.03.setup/mlp1_mask20_stopped.log',
+        #'/home/cc/Documents/20.03.setup/mlp1_mask10_stopped.log',
+        #'/home/cc/Documents/20.03.setup/mlp1_mask_stopped.log',
         #'/home/cc/Documents/20.03.setup/mlp1_chunkgl_stopped.log',
         #'/home/cc/Documents/20.03.setup/mlp4_final.log',
         #'/home/cc/Documents/20.03.setup/mlp2_final.log',

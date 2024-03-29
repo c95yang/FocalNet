@@ -587,7 +587,6 @@ class SS2D(nn.Module):
             x, z = x.chunk(2, dim=-1) # (b, h, w, d)
             if not self.disable_z_act:
                 z = self.act(z)
-        
 
         x = x.permute(0, 3, 1, 2).contiguous()
         if with_dconv:
@@ -598,6 +597,118 @@ class SS2D(nn.Module):
 
         if not self.disable_z:
             y = y * z
+        out = self.dropout(self.out_proj(y))
+        return out
+
+class MambaSS2D(nn.Module):
+    def __init__(
+        self,
+        # basic dims ===========
+        d_model,
+        d_state,
+        ssm_ratio,
+        dt_rank,
+        act_layer,
+        # dwconv ===============
+        d_conv, # < 2 means no conv 
+        conv_bias,
+        # ======================
+        dropout,
+        bias=False,
+        # dt init ==============
+        dt_min=0.001,
+        dt_max=0.1,
+        dt_init="random",
+        dt_scale=1.0,
+        dt_init_floor=1e-4,
+        initialize="v0",
+        # ======================
+        forward_type="v2",
+        # ======================
+        **kwargs,
+    ):
+        kwargs.update(
+            d_model=d_model, d_state=d_state, ssm_ratio=ssm_ratio, dt_rank=dt_rank,
+            act_layer=act_layer, d_conv=d_conv, conv_bias=conv_bias, dropout=dropout, bias=bias,
+            dt_min=dt_min, dt_max=dt_max, dt_init=dt_init, dt_scale=dt_scale, dt_init_floor=dt_init_floor,
+            initialize=initialize, forward_type=forward_type,
+        )
+
+        self.__init__(**kwargs)
+        return
+
+    def __init__(
+        self,
+        # basic dims ===========
+        d_model,
+        d_state,
+        ssm_ratio,
+        dt_rank,
+        act_layer,
+        # dwconv ===============
+        d_conv, # < 2 means no conv 
+        conv_bias,
+        # ======================
+        dropout,
+        bias  
+    ):
+        factory_kwargs = {"device": 'cuda', "dtype": None}
+        super().__init__()
+        d_inner = int(ssm_ratio * d_model)
+        dt_rank = math.ceil(d_model / 16) if dt_rank == "auto" else dt_rank
+        self.d_conv = d_conv
+        Linear = nn.Linear
+        self.out_norm_shape = "v0"
+        self.out_norm = nn.LayerNorm(d_inner, device='cuda')
+
+        # in proj =======================================
+        d_proj = d_inner * 2
+        self.in_proj = Linear(d_model, d_proj, bias=bias, **factory_kwargs)
+        self.act: nn.Module = act_layer()
+        
+        # conv =======================================
+        if d_conv > 1:
+            self.conv2d = nn.Conv2d(
+                in_channels=d_inner,
+                out_channels=d_inner,
+                groups=d_inner,
+                bias=conv_bias,
+                kernel_size=d_conv,
+                padding=(d_conv - 1) // 2,
+                **factory_kwargs,
+            )
+        
+        # out proj =======================================
+        self.out_proj = Linear(d_inner, d_model, bias=bias, **factory_kwargs)
+        self.dropout = nn.Dropout(dropout) if dropout > 0. else nn.Identity()
+
+        # Mamba fwd bwd =======================================
+        self.mamba_fwd = Mamba(d_model=d_inner)
+        self.mamba_bwd = Mamba(d_model=d_inner)
+
+    def forward(self, x: torch.Tensor):
+        with_dconv = (self.d_conv > 1)
+        x = self.in_proj(x)
+        
+        x, z = x.chunk(2, dim=-1) # (b, h, w, d)
+        z = self.act(z)
+        b, h, w, d = z.shape
+
+        x = x.permute(0, 3, 1, 2).contiguous()
+        if with_dconv:
+            x = self.conv2d(x) # (b, d, h, w)
+        x = self.act(x)
+
+        x_fwd = x.flatten(2).permute(0, 2, 1).contiguous()
+        x_bwd = x_fwd.flip(1)
+
+        x_fwd = self.mamba_fwd(x_fwd)
+        x_bwd = self.mamba_bwd(x_bwd)
+
+        x_fwd = x_fwd.view(b, h, w, d) * z
+        x_bwd = x_bwd.flip(1).view(b, h, w, d) * z
+        y = x_fwd + x_bwd
+
         out = self.dropout(self.out_proj(y))
         return out
 
@@ -656,6 +767,20 @@ class VSSBlock(nn.Module):
                 # ==========================
                 forward_type=forward_type,
             )
+
+            # self.op = MambaSS2D(
+            #     d_model=hidden_dim, 
+            #     d_state=ssm_d_state, 
+            #     ssm_ratio=ssm_ratio,
+            #     dt_rank=ssm_dt_rank,
+            #     act_layer=ssm_act_layer,
+            #     # ==========================
+            #     d_conv=ssm_conv,
+            #     conv_bias=ssm_conv_bias,
+            #     # ==========================
+            #     dropout=ssm_drop_rate,
+            #     bias=False,
+            # )
         
         self.drop_path = DropPath(drop_path)
         
@@ -707,7 +832,6 @@ class VSSG(nn.Module):
         patch_norm=True, 
         norm_layer="LN", 
         use_checkpoint=False,  
-        mask_enabled=True,
         **kwargs,
     ):
         super().__init__()
@@ -715,7 +839,6 @@ class VSSG(nn.Module):
         self.dim = 96
         self.train_enabled = True
         self.gl_merge = gl_merge
-        self.mask_enabled = mask_enabled
         #self.scale = nn.Parameter(torch.ones(in_chans, 1, 1, device='cuda'))
 
         self.ssm_d_state=ssm_d_state
@@ -813,14 +936,6 @@ class VSSG(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-    
-    # @staticmethod
-    # def random_mask_generator(height, width, percent_zero):
-    #     N = height * width
-    #     mask = torch.ones(N, device='cuda')
-    #     zero_indices = random.sample(range(N), int((percent_zero / 100) * N))  
-    #     mask[zero_indices] = 0
-    #     return mask.view(height, width)
 
     @staticmethod
     def _make_patch_embed(in_chans, embed_dim, patch_size, patch_norm=True, norm_layer=nn.LayerNorm):
@@ -846,16 +961,7 @@ class VSSG(nn.Module):
         # x_global, x_local = torch.chunk(x, 2, dim=1)
 
         x_global = self.patch_embed_global(x_global)  # bigger conv kernel, resulting in smaller feature map 
-        # if self.train_enabled & self.mask_enabled:
-        #     _, h, w, _ = x_global.shape
-        #     mask_g = self.random_mask_generator(h, w, percent_zero = 5)
-        #     x_global *= mask_g.unsqueeze(-1)
-
         x_local = self.patch_embed_local(x_local)  # smaller conv kernel, resulting in bigger feature map 
-        # if self.train_enabled & self.mask_enabled:
-        #     _, h, w, _ = x_local.shape
-        #     mask_l = self.random_mask_generator(h, w, percent_zero = 5)
-        #     x_local *= mask_l.unsqueeze(-1)
 
         for i, layer in enumerate(self.layers):
             x_global, x_local = layer(x_global, x_local)
@@ -886,44 +992,37 @@ class VSSG(nn.Module):
         else:
             x = self.forward_g(x)
 
-        res = x
-
         #------------------------------channel ssm--------------------------------batch, length, dim
-        b, c, h, w = x.shape
+        # res = x
+        # b, c, h, w = x.shape
 
-        scale = 4
+        # scale = 4
 
-        x = nn.MaxPool2d(kernel_size=scale, stride=scale)(x)
-        x_fwd = x.flatten(2).contiguous()
-        x_bwd = x_fwd.flip(1).contiguous()
-        _, _, n = x_fwd.shape
-        #print(x_fwd[0,:,0], x_bwd[0,:,0])
+        # x = nn.MaxPool2d(kernel_size=scale, stride=scale)(x)
+        # x_fwd = x.flatten(2).contiguous()
+        # x_bwd = x_fwd.flip(1).contiguous()
+        # _, _, n = x_fwd.shape
+        # #print(x_fwd[0,:,0], x_bwd[0,:,0])
 
-        blocks_fwd = []
-        blocks_fwd.append(Mamba(d_model=n).to('cuda'))
-        layers_fwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_fwd)))
-        x_fwd = layers_fwd(x_fwd).view(b, c, h//scale, w//scale).contiguous()
-        x_fwd = nn.Upsample(scale_factor=scale, mode='bilinear')(x_fwd)
+        # blocks_fwd = []
+        # blocks_fwd.append(Mamba(d_model=n).to('cuda'))
+        # layers_fwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_fwd)))
+        # x_fwd = layers_fwd(x_fwd).view(b, c, h//scale, w//scale).contiguous()
+        # x_fwd = nn.Upsample(scale_factor=scale, mode='bilinear')(x_fwd)
 
-        blocks_bwd = []
-        blocks_bwd.append(Mamba(d_model=n).to('cuda'))
-        layers_bwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_bwd)))
-        x_bwd = layers_bwd(x_bwd).view(b, c, h//scale, w//scale).flip(1).contiguous()
-        x_bwd = nn.Upsample(scale_factor=scale, mode='bilinear')(x_bwd)
+        # blocks_bwd = []
+        # blocks_bwd.append(Mamba(d_model=n).to('cuda'))
+        # layers_bwd = nn.Sequential(OrderedDict(blocks=nn.Sequential(*blocks_bwd)))
+        # x_bwd = layers_bwd(x_bwd).view(b, c, h//scale, w//scale).flip(1).contiguous()
+        # x_bwd = nn.Upsample(scale_factor=scale, mode='bilinear')(x_bwd)
 
-        x = x_fwd + x_bwd
+        # x = x_fwd + x_bwd
+        # return x + res
         #------------------------------channel ssm--------------------------------
+    
+        return x
 
-        return x + res
         
-    # def train(self, mode=True):
-    #     self.train_enabled = True
-    #     super(VSSG, self).train(mode)
-
-    # def eval(self):
-    #     self.train_enabled = False
-    #     super(VSSG, self).eval()
-
     def flops(self, x):
         shape = x.shape[1:]
         supported_ops={
