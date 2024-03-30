@@ -18,13 +18,24 @@ def parse_psnr_from_log(log_file):
         lines = file.readlines()
         t = 0
 
-        for line in lines:
-            if "Average PSNR" in line:
-                psnr = re.findall(r'Average PSNR (\d+\.\d+) dB', line)
-                if psnr:
-                    psnr_values.append(float(psnr[0]))
-                    timestamps.append(t*10)
-                    t += 1
+        if log_file == '/home/cc/Documents/20.03.setup/baseline1_final.log':
+            c = 0
+            for line in lines:
+                if "Average PSNR" in line:
+                    c+=1
+                    psnr = re.findall(r'Average PSNR (\d+\.\d+) dB', line)
+                    if psnr and ((c==1) or (c % 10 == 0)):
+                        psnr_values.append(float(psnr[0]))
+                        timestamps.append(t*10)
+                        t += 1
+        else:
+            for line in lines:
+                if "Average PSNR" in line:
+                    psnr = re.findall(r'Average PSNR (\d+\.\d+) dB', line)
+                    if psnr:
+                        psnr_values.append(float(psnr[0]))
+                        timestamps.append(t*10)
+                        t += 1
 
     return timestamps, psnr_values
 
@@ -127,25 +138,30 @@ def plot_multiple_fft_loss_curves(log_files):
 if __name__ == '__main__':
     log_files = [
         '/home/cc/Documents/20.03.setup/tmp/mambass2d.log',
+        '/home/cc/Documents/20.03.setup/mlp1_channel_ssm_8_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp1_channel_ssm_4_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp1_channel_ssm_4_res_stopped.log',
+        '/home/cc/Documents/20.03.setup/2ways_stopped.log',
         '/home/cc/Documents/20.03.setup/mlp1_scaled_stopped.log',
-        #'/home/cc/Documents/20.03.setup/mlp1_mask25_stopped.log',
-        #'/home/cc/Documents/20.03.setup/mlp1_mask20_stopped.log',
-        #'/home/cc/Documents/20.03.setup/mlp1_mask10_stopped.log',
-        #'/home/cc/Documents/20.03.setup/mlp1_mask_stopped.log',
-        #'/home/cc/Documents/20.03.setup/mlp1_chunkgl_stopped.log',
-        #'/home/cc/Documents/20.03.setup/mlp4_final.log',
-        #'/home/cc/Documents/20.03.setup/mlp2_final.log',
+        '/home/cc/Documents/20.03.setup/mlp1_mask25_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp1_mask20_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp1_mask10_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp1_mask5_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp1_chunkgl_stopped.log',
+        '/home/cc/Documents/20.03.setup/mlp4_final.log',
+        '/home/cc/Documents/20.03.setup/mlp2_final.log',
         '/home/cc/Documents/20.03.setup/mlp1_final.log',
-        #'/home/cc/Documents/20.03.setup/mlp0_stopped.log',
-        #'/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
-        #'/home/cc/Documents/20.03.setup/ps_gl84t_stopped.log',
-        #'/home/cc/Documents/20.03.setup/ps_g4_final.log',
-        #'/home/cc/Documents/20.03.setup/ps_gl84_final.log',
-        #'/home/cc/Documents/20.03.setup/g4_final.log',
-        #'/home/cc/Documents/20.03.setup/g2_final.log',
-        #'/home/cc/Documents/20.03.setup/gl42_final.log',
-        #'/home/cc/Documents/20.03.setup/gl44_final.log',
-        #'/home/cc/Documents/20.03.setup/gl84_final.log',
+        '/home/cc/Documents/20.03.setup/mlp0_stopped.log',
+        '/home/cc/Documents/20.03.setup/ps_g4t_stopped.log', 
+        '/home/cc/Documents/20.03.setup/ps_gl84t_stopped.log',
+        '/home/cc/Documents/20.03.setup/ps_g4_final.log',
+        '/home/cc/Documents/20.03.setup/ps_gl84_final.log',
+        '/home/cc/Documents/20.03.setup/g4_final.log',
+        '/home/cc/Documents/20.03.setup/g2_final.log',
+        '/home/cc/Documents/20.03.setup/gl42_final.log',
+        '/home/cc/Documents/20.03.setup/gl44_final.log',
+        '/home/cc/Documents/20.03.setup/gl84_final.log',
+        '/home/cc/Documents/20.03.setup/baseline1_final.log',
         ]  
     plot_multiple_psnr_curves(log_files)
     plot_multiple_pixel_loss_curves(log_files)
