@@ -1,6 +1,7 @@
 results*/
 runs/
 logs/
+20.03.setup/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
