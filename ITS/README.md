@@ -1,3 +1,9 @@
+## Architecture
+![Architecture](./focalnet.svg)
+
+
+## Environment
+
 conda create -n vmam
 conda activate vmam
 
