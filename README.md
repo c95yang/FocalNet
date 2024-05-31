@@ -1,5 +1,5 @@
 ## Architecture
-![Architecture](./focalnet.svg)
+![Architecture](./svgs/focalnet.svg)
 
 
 ## Environment
