@@ -54,15 +54,15 @@ def main(args):
 
 
 if __name__ == '__main__':
-    result_folder = 'results_mask/'
+    result_folder = 'results/'
     parser = argparse.ArgumentParser()
 
     # Directories
     parser.add_argument('--model_name', default='MIMO-UNet', choices=['MIMO-UNet'], type=str)
 #    parser.add_argument('--data_dir', type=str, default='/data/ir_datasets/reside-indoor')
-#    parser.add_argument('--data_dir', type=str, default='/mnt/nvme0n1/cyn/datasets/its/reside-indoor')
-    parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
     parser.add_argument('--data_dir', type=str, default='/home/cc/Documents/data/reside-indoor')
+    parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
+
     # Train
     parser.add_argument('--batch_size', type=int, default=4)#4
     parser.add_argument('--learning_rate', type=float, default=1e-4)#1e4
@@ -77,17 +77,19 @@ if __name__ == '__main__':
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='results/gl42/Best.pkl')
-    parser.add_argument('--save_image', type=bool, default=False, choices=[True, False])
+    parser.add_argument('--test_model', type=str, default='/home/cc/Documents/FocalNet/ITS/results_1mlp/Best.pkl')
+    parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
 
     args = parser.parse_args()
-    args.model_save_dir = os.path.join(result_folder, 'yc', 'gl42_1mlp_mask')
-    args.result_dir = os.path.join(result_folder, args.model_name, 'test')
+    args.model_save_dir = os.path.join(result_folder)
+    args.result_dir = os.path.join(result_folder, 'test')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
     command = 'cp ' + 'models/layers.py ' + args.model_save_dir
     os.system(command)
     command = 'cp ' + 'models/MIMOUNet.py ' + args.model_save_dir
+    os.system(command)
+    command = 'cp ' + 'models/vmamba_layers.py ' + args.model_save_dir
     os.system(command)
     command = 'cp ' + 'train.py ' + args.model_save_dir
     os.system(command)
