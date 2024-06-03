@@ -19,10 +19,10 @@ def main(args):
 
     if not os.path.exists(result_folder):
         os.makedirs(args.model_save_dir)
-    if not os.path.exists(result_folder + args.model_name + '/'):
-        os.makedirs(result_folder + args.model_name + '/')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
+    if not os.path.exists(args.code_save_dir):
+        os.makedirs(args.code_save_dir)
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
@@ -61,7 +61,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', default='MIMO-UNet', choices=['MIMO-UNet'], type=str)
 #    parser.add_argument('--data_dir', type=str, default='/data/ir_datasets/reside-indoor')
     parser.add_argument('--data_dir', type=str, default='/home/cc/Documents/data/reside-indoor')
-    parser.add_argument('--mode', default='train', choices=['train', 'test'], type=str)
+    parser.add_argument('--mode', default='test', choices=['train', 'test'], type=str)
 
     # Train
     parser.add_argument('--batch_size', type=int, default=4)#4
@@ -77,23 +77,24 @@ if __name__ == '__main__':
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='/home/cc/Documents/FocalNet/ITS/results_1mlp/Best.pkl')
+    parser.add_argument('--test_model', type=str, default='/home/cc/Documents/FocalNet/ITS/results_1mlp_g4/Best.pkl')
     parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
 
     args = parser.parse_args()
-    args.model_save_dir = os.path.join(result_folder)
+    args.model_save_dir = os.path.join(result_folder, 'ckpts')
+    args.code_save_dir = os.path.join(result_folder, 'codes')
     args.result_dir = os.path.join(result_folder, 'test')
     if not os.path.exists(args.model_save_dir):
         os.makedirs(args.model_save_dir)
-    command = 'cp ' + 'models/layers.py ' + args.model_save_dir
+    command = 'cp ' + 'models/layers.py ' + args.code_save_dir
     os.system(command)
-    command = 'cp ' + 'models/MIMOUNet.py ' + args.model_save_dir
+    command = 'cp ' + 'models/MIMOUNet.py ' + args.code_save_dir
     os.system(command)
-    command = 'cp ' + 'models/vmamba_layers.py ' + args.model_save_dir
+    command = 'cp ' + 'models/vmamba_layers.py ' + args.code_save_dir
     os.system(command)
-    command = 'cp ' + 'train.py ' + args.model_save_dir
+    command = 'cp ' + 'train.py ' + args.code_save_dir
     os.system(command)
-    command = 'cp ' + 'main.py ' + args.model_save_dir
+    command = 'cp ' + 'main.py ' + args.code_save_dir
     os.system(command)
     print(args)
     main(args)
