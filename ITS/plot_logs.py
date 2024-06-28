@@ -2,9 +2,12 @@ import re
 import os
 import matplotlib.pyplot as plt
 
-psnr_bound = (0, 50)
-pixel_bound = (0, 0.3)
-fft_bound = (0, 5)
+psnr_bound = (28, 50)
+pixel_bound = (0, 0.06)
+fft_bound = (0, 2.5)
+
+line_width = 2
+marker_size = 2.5
 
 def clamp_loss_values(loss_values, bound):
     lower_bound, upper_bound = bound
@@ -83,7 +86,7 @@ def plot_multiple_psnr_curves(log_files):
         filename = os.path.splitext(filename)[0]  # Remove file extension
         timestamps, psnr_values = parse_psnr_from_log(log_file)
         psnr_values = clamp_loss_values(psnr_values, bound=psnr_bound)
-        plt.plot(timestamps, psnr_values, marker='o', linestyle='-', label=filename, markersize=2, linewidth=1)
+        plt.plot(timestamps, psnr_values, marker='o', linestyle='-', label=filename, markersize=marker_size, linewidth=line_width)
 
         last_psnr = psnr_values[-1]
         last_timestamp = timestamps[-1]
@@ -107,7 +110,7 @@ def plot_multiple_pixel_loss_curves(log_files):
         timestamps = timestamps[::100]
         pixel_loss = pixel_loss[::100]
 
-        plt.plot(timestamps, pixel_loss, marker='o', linestyle='-', label=filename, markersize=0.1, linewidth=1)
+        plt.plot(timestamps, pixel_loss, marker='o', linestyle='-', label=filename, markersize=0, linewidth=line_width)
 
     plt.xlabel('Step')
     plt.ylabel('Loss')
@@ -127,7 +130,7 @@ def plot_multiple_fft_loss_curves(log_files):
         timestamps = timestamps[::100]
         fft_loss = fft_loss[::100]
 
-        plt.plot(timestamps, fft_loss, marker='o', linestyle='-', label=filename, markersize=0.1, linewidth=1)
+        plt.plot(timestamps, fft_loss, marker='o', linestyle='-', label=filename, markersize=0, linewidth=line_width)
 
     plt.xlabel('Step')
     plt.ylabel('Loss')
@@ -150,7 +153,7 @@ if __name__ == '__main__':
         # '20.03.setup/mlp1_chunkgl_stopped.log',
         # '20.03.setup/mlp4_final.log',
         # '20.03.setup/mlp2_final.log',
-        # '20.03.setup/mlp1_final.log',
+        '../20.03.setup/mlp1_final.log',
         # '20.03.setup/mlp0_stopped.log',
         # '20.03.setup/ps_g4t_stopped.log', 
         # '20.03.setup/ps_gl84t_stopped.log',
@@ -163,7 +166,7 @@ if __name__ == '__main__':
         # '20.03.setup/gl84_final.log',
         # '20.03.setup/baseline_final.log',
         '../20.03.setup/mlp1_g4_final.log',
-        '/home/cc/Downloads/g2_enhanced.log'
+        '../20.03.setup/mlp1_g2_final.log'
         ]  
     plot_multiple_psnr_curves(log_files)
     plot_multiple_pixel_loss_curves(log_files)

@@ -13,6 +13,8 @@ np.random.seed(1234)
 torch.manual_seed(1234)
 torch.cuda.manual_seed_all(1234)
 
+import torchsummary
+
 def main(args):
     # CUDNN
     cudnn.benchmark = True
@@ -28,7 +30,9 @@ def main(args):
 
     model = build_net()
 
-    #print(model)
+    # print(model)
+    # torchsummary.summary(model, (3, 256, 256))
+    # return
 
     x_fake = torch.randn(3, 256, 256)
     macs_ssm = model.flops(x_fake) / 1e9
@@ -77,7 +81,7 @@ if __name__ == '__main__':
     # parser.add_argument('--lr_steps', type=list, default=[(x+1) * 500 for x in range(3000//500)])
 
     # Test
-    parser.add_argument('--test_model', type=str, default='/home/cc/Documents/FocalNet/ITS/results_1mlp_g4/Best.pkl')
+    parser.add_argument('--test_model', type=str, default='/home/cc/Documents/FocalNet/ITS/results_1mlp_g2/Best.pkl')
     parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
 
     args = parser.parse_args()
